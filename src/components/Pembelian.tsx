@@ -10,13 +10,17 @@ import {
   ShoppingCart,
   CheckCircle2,
   AlertCircle,
+  ArrowUp,
+  ArrowDown,
+  Copy,
+  XCircle,
 } from "lucide-react";
 import { db, supabase } from "../lib/supabase";
 import Swal from "sweetalert2";
 import PurchaseFilters from "./PurchaseFilters";
 
 const Pembelian: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<"purchases" | "purchaseList">("purchases");
+  const [activeTab, setActiveTab] = useState<"purchases" | "purchaseList" | "stock">("purchases");
   const [showPurchaseForm, setShowPurchaseForm] = useState(false);
   const [isSavingPurchase, setIsSavingPurchase] = useState(false);
   const [editingPoId, setEditingPoId] = useState<string | null>(null);
@@ -73,6 +77,21 @@ const Pembelian: React.FC = () => {
   const [showProductSelectModal, setShowProductSelectModal] = useState<{ open: boolean; index: number | null }>({ open: false, index: null });
   const [supplierSearchTerm, setSupplierSearchTerm] = useState("");
   const [productSearchTerm, setProductSearchTerm] = useState("");
+  
+  const [stockLoacingData, setStockLoadingData] = useState(false);
+  const [stockSortBy, setStockSortBy] = useState<string | null>(null);
+  const [stockSortOrder, setStockSortOrder] = useState<"asc" | "desc">("asc");
+  const [stockSearch, setStockSearch] = useState("");
+  const [stockCategoryFilter, setStockCategoryFilter] = useState("");
+  const [selectedStockIds, setSelectedStockIds] = useState<string[]>([]);
+  const [showSelectedStockModal, setShowSelectedStockModal] = useState(false);
+  const [showStockCard, setShowStockCard] = useState(false);
+  const [stockCardProduct, setStockCardProduct] = useState<any | null>(null);
+  const [stockHistory, setStockHistory] = useState<any[]>([]);
+  const [stockHistoryLoading, setStockHistoryLoading] = useState(false);
+  const [stockHistoryError, setStockHistoryError] = useState<string | null>(null);
+  const [stockHistoryPage, setStockHistoryPage] = useState(0);
+  const STOCK_HISTORY_PAGE_SIZE = 10;
 
   // Fetch Data
   useEffect(() => {
@@ -456,6 +475,348 @@ const Pembelian: React.FC = () => {
   const filteredSuppliersForModal = suppliers.filter(s => s.name.toLowerCase().includes(supplierSearchTerm.toLowerCase()));
   const filteredProductsForModal = products.filter(p => p.name.toLowerCase().includes(productSearchTerm.toLowerCase()));
 
+  const handleStockSort = (columnKey: string) => {
+    if (stockSortBy === columnKey) {
+      setStockSortOrder(stockSortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setStockSortBy(columnKey);
+      setStockSortOrder("asc");
+    }
+  };
+
+  const getSortedProducts = () => {
+    let filtered = products;
+
+    // Filter by search term
+    if (stockSearch) {
+      filtered = filtered.filter(p => 
+        p.name.toLowerCase().includes(stockSearch.toLowerCase())
+      );
+    }
+
+    // Filter by category
+    if (stockCategoryFilter) {
+      filtered = filtered.filter(p => p.category === stockCategoryFilter);
+    }
+
+    if (!stockSortBy) return filtered;
+    
+    const sorted = [...filtered].sort((a, b) => {
+      let aValue: any = a[stockSortBy as keyof typeof a];
+      let bValue: any = b[stockSortBy as keyof typeof b];
+
+      if (aValue === null || aValue === undefined) aValue = "";
+      if (bValue === null || bValue === undefined) bValue = "";
+
+      if (typeof aValue === "string") {
+        aValue = aValue.toLowerCase();
+        bValue = bValue.toLowerCase();
+      }
+
+      if (aValue < bValue) return stockSortOrder === "asc" ? -1 : 1;
+      if (aValue > bValue) return stockSortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    return sorted;
+  };
+
+  const uniqueCategories = Array.from(new Set(products.map(p => p.category).filter(Boolean)));
+
+  const SortHeader = ({ label, sortKey }: { label: string; sortKey: string }) => (
+    <button
+      onClick={() => handleStockSort(sortKey)}
+      className="flex items-center gap-2 hover:text-gray-900 transition-colors"
+    >
+      {label}
+      {stockSortBy === sortKey && (
+        stockSortOrder === "asc" ? <ArrowUp className="h-4 w-4 flex-shrink-0" /> : <ArrowDown className="h-4 w-4 flex-shrink-0" />
+      )}
+    </button>
+  );
+
+  const getStockProductId = (product: any) => String(product.id ?? "");
+  const getVisibleStockProducts = () => getSortedProducts();
+  const visibleStockProducts = getVisibleStockProducts();
+  const areAllStockSelected = visibleStockProducts.length > 0 && visibleStockProducts.every(p => selectedStockIds.includes(getStockProductId(p)));
+  const selectedStockProducts = visibleStockProducts.filter(p => selectedStockIds.includes(getStockProductId(p)));
+  const selectedStockProductsText = [
+    "Daftar Barang Belanja",
+    "===============",
+    ...selectedStockProducts.map((product, index) => `${index + 1}. ${product.name}`),
+  ].join("\n");
+
+  const toggleSelectStock = (productId: string) => {
+    setSelectedStockIds(prev =>
+      prev.includes(productId) ? prev.filter(id => id !== productId) : [...prev, productId]
+    );
+  };
+
+  const toggleSelectAllStock = () => {
+    const visibleIds = visibleStockProducts.map(getStockProductId);
+    if (visibleIds.every(id => selectedStockIds.includes(id))) {
+      setSelectedStockIds(prev => prev.filter(id => !visibleIds.includes(id)));
+    } else {
+      setSelectedStockIds(prev => Array.from(new Set([...prev, ...visibleIds])));
+    }
+  };
+
+  const copySelectedStockToClipboard = async () => {
+    const text = [
+      "Daftar Barang Belanja",
+      "===============",
+      ...selectedStockProducts.map((product, index) => `${index + 1}. ${product.name}`),
+    ].join("\n");
+
+    try {
+      await navigator.clipboard.writeText(text);
+      Swal.fire({
+        icon: "success",
+        title: "Tersalin",
+        text: "Daftar barang telah disalin ke clipboard.",
+        timer: 1300,
+        showConfirmButton: false,
+      });
+    } catch (error) {
+      console.error(error);
+      Swal.fire("Gagal", "Tidak dapat menyalin ke clipboard.", "error");
+    }
+  };
+
+  const handleOpenStockCard = (product: any) => {
+    setStockCardProduct(product);
+    setShowStockCard(true);
+    setStockHistoryPage(0);
+    fetchStockHistory(product.id, product.stock).catch((e) => {
+      console.error("fetchStockHistory error", e);
+    });
+  };
+
+  const fetchStockHistory = async (productId: string, currentStock: number) => {
+    setStockHistoryLoading(true);
+    setStockHistoryError(null);
+    setStockHistory([]);
+
+    try {
+      const rows: any[] = [];
+
+      // 1) incoming: purchase_order_items
+      try {
+        const poItems = (await db.select("purchase_order_items", "*", {
+          product_id: productId,
+        })) as any[];
+        if (Array.isArray(poItems) && poItems.length > 0) {
+          for (const r of poItems as any[]) {
+            const qty = Number(r.quantity ?? r.qty ?? r.qty_received ?? 0);
+            rows.push({
+              id: (r as any).id,
+              product_id: productId,
+              quantity: qty,
+              note:
+                (r as any).note ||
+                (r as any).notes ||
+                `PO:${(r as any).po_id || (r as any).po_number || ""}`,
+              created_at:
+                (r as any).created_at ||
+                (r as any).inserted_at ||
+                (r as any).timestamp ||
+                new Date().toISOString(),
+            });
+          }
+        }
+      } catch (err) {
+        // ignore if table missing or error
+      }
+
+      // 2) outgoing: cashier_transactions
+      try {
+        const { data: txs, error } = await supabase
+          .from("cashier_transactions")
+          .select("*")
+          .in("type", ["sale", "stock_reduction"]);
+
+        if (error) throw error;
+        if (Array.isArray(txs) && txs.length > 0) {
+          for (const tx of txs as any[]) {
+            let parsed: any = tx.details;
+            if (!parsed && tx.details && typeof tx.details === "string") {
+              try {
+                parsed = JSON.parse(tx.details);
+              } catch (e) {
+                parsed = null;
+              }
+            }
+
+            const candidates: any[] = [];
+            if (Array.isArray(parsed)) candidates.push(...parsed);
+            if (parsed && Array.isArray(parsed.items)) candidates.push(...parsed.items);
+            if (parsed && Array.isArray(parsed.products)) candidates.push(...parsed.products);
+            if (parsed && Array.isArray(parsed.cart)) candidates.push(...parsed.cart);
+            if (candidates.length === 0 && parsed && typeof parsed === "object") {
+              for (const v of Object.values(parsed)) {
+                if (Array.isArray(v)) candidates.push(...v);
+              }
+            }
+
+            for (const it of candidates) {
+              const pid =
+                (it as any).product_id ??
+                (it as any).productId ??
+                (it as any).id ??
+                (it as any).item_id;
+              if (!pid) continue;
+              if (String(pid) === String(productId)) {
+                const qty = Number(
+                  (it as any).quantity ?? (it as any).qty ?? (it as any).q ?? 0
+                );
+                if (qty === 0) continue;
+                rows.push({
+                  id: (tx as any).id,
+                  product_id: productId,
+                  quantity: -Math.abs(qty),
+                  note:
+                    (tx as any).description ||
+                    (tx as any).note ||
+                    (tx as any).reference_id ||
+                    (tx as any).details?.note ||
+                    null,
+                  created_at:
+                    (tx as any).timestamp ||
+                    (tx as any).created_at ||
+                    (tx as any).inserted_at ||
+                    new Date().toISOString(),
+                });
+              }
+            }
+          }
+        }
+      } catch (err) {
+        // ignore if table missing or error
+      }
+
+      // 3) outgoing: assembly_logs
+      try {
+        const { data: assemblyLogs } = await supabase
+          .from("assembly_logs")
+          .select(`
+          *,
+          recipe:assembly_recipes(product_name)
+        `);
+        if (Array.isArray(assemblyLogs) && assemblyLogs.length > 0) {
+          for (const log of assemblyLogs as any[]) {
+            const ingredientsUsed = log.ingredients_used;
+            if (Array.isArray(ingredientsUsed)) {
+              for (const ingredient of ingredientsUsed) {
+                const ingredientProductId =
+                  ingredient.product_id || ingredient.productId;
+                if (String(ingredientProductId) === String(productId)) {
+                  const qty = Number(
+                    ingredient.quantity_used || ingredient.quantityUsed || 0
+                  );
+                  if (qty === 0) continue;
+
+                  rows.push({
+                    id: `assembly_${log.id}_${ingredientProductId}`,
+                    product_id: productId,
+                    quantity: -Math.abs(qty),
+                    note: `Assembly: ${
+                      log.recipe?.product_name || `Recipe ID: ${log.recipe_id}`
+                    }`,
+                    created_at:
+                      log.created_at ||
+                      log.timestamp ||
+                      new Date().toISOString(),
+                  });
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        // ignore if table missing or error
+      }
+
+      // 4) stock opname adjustments
+      try {
+        const { data: opnameSessions } = await supabase
+          .from("stock_opname_sessions")
+          .select(`
+            id,
+            nomor,
+            opname_date,
+            created_at,
+            stock_opname_items!inner(
+              product_id,
+              product_name,
+              system_stock,
+              physical_stock,
+              unit_cost
+            )
+          `)
+          .eq("stock_opname_items.product_id", productId);
+
+        if (Array.isArray(opnameSessions) && opnameSessions.length > 0) {
+          for (const session of opnameSessions as any[]) {
+            const sessionItems = session.stock_opname_items || [];
+            for (const item of sessionItems) {
+              if (String(item.product_id) === String(productId)) {
+                const adjustment =
+                  Number(item.physical_stock || 0) -
+                  Number(item.system_stock || 0);
+
+                if (adjustment !== 0) {
+                  rows.push({
+                    id: `opname_${session.id}_${item.product_id}`,
+                    product_id: productId,
+                    quantity: adjustment,
+                    note: `Opname: ${session.nomor || session.id} (${Number(
+                      item.system_stock || 0
+                    )} → ${Number(item.physical_stock || 0)})`,
+                    created_at: session.created_at,
+                  });
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        // ignore if table missing or error
+      }
+
+      if (rows.length === 0) {
+        setStockHistory([]);
+        setStockHistoryLoading(false);
+        return;
+      }
+
+      rows.sort((a: any, b: any) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+
+      const totalDelta = rows.reduce(
+        (s: number, r: any) => s + Number(r.quantity || 0),
+        0
+      );
+      const baseline = Number(currentStock || 0) - totalDelta;
+      let running = baseline;
+      const withBalance = rows.map((r: any) => {
+        const qty = Number(r.quantity || 0);
+        running = running + qty;
+        return {
+          ...r,
+          _qty: qty,
+          _balance: running,
+        };
+      });
+
+      setStockHistory(withBalance);
+    } catch (error: any) {
+      setStockHistoryError(error?.message || String(error));
+    } finally {
+      setStockHistoryLoading(false);
+    }
+  };
+
   const filteredPurchaseOrdersForDaftar = purchaseOrders.filter(po => {
     // Hitung periode tanggal 
     let start: Date | null = null;
@@ -809,6 +1170,328 @@ const Pembelian: React.FC = () => {
     </div>
   );
 
+  const renderStockTab = () => (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Stock Barang</h2>
+        <p className="text-gray-600">Kelola dan pantau stok barang saat ini</p>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+          <div className="flex-1">
+            <label className="block text-xs font-bold text-gray-600 uppercase mb-2">Cari Nama Barang</label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <input
+                type="text"
+                placeholder="Cari produk atau barcode..."
+                value={stockSearch}
+                onChange={(e) => setStockSearch(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              />
+            </div>
+          </div>
+          <div className="flex items-end gap-3">
+            <div className="w-48">
+              <label className="block text-xs font-bold text-gray-600 uppercase mb-2">Filter Kategori</label>
+              <select
+                value={stockCategoryFilter}
+                onChange={(e) => setStockCategoryFilter(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              >
+                <option value="">Semua Kategori</option>
+                {uniqueCategories.map(category => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              disabled={selectedStockProducts.length === 0}
+              onClick={() => setShowSelectedStockModal(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 text-white font-semibold transition hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <ShoppingCart className="h-4 w-4" />
+              Keranjang
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <input
+                    type="checkbox"
+                    checked={areAllStockSelected}
+                    onChange={toggleSelectAllStock}
+                    className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                  />
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <SortHeader label="Nama" sortKey="name" />
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <SortHeader label="Kategori" sortKey="category" />
+                </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                  Kartu Stok
+                </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                  <div className="flex items-center justify-end">
+                    <SortHeader label="Min. Stok" sortKey="min_stock" />
+                  </div>
+                </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                  <div className="flex items-center justify-end">
+                    <SortHeader label="Stok" sortKey="stock" />
+                  </div>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {visibleStockProducts.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                    Tidak ada data produk
+                  </td>
+                </tr>
+              ) : (
+                visibleStockProducts.map((product) => {
+                  const productId = getStockProductId(product);
+                  return (
+                    <tr key={productId} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedStockIds.includes(productId)}
+                          onChange={() => toggleSelectStock(productId)}
+                          className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                        />
+                      </td>
+                      <td className="px-6 py-4 font-medium text-gray-900">{product.name}</td>
+                      <td className="px-6 py-4 text-gray-600">{product.category || "-"}</td>
+                      <td className="px-6 py-4 text-center">
+                        <button
+                          onClick={() => handleOpenStockCard(product)}
+                          title="Kartu Stok"
+                          className="p-1 text-gray-400 hover:text-yellow-600 transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+                            <path d="M3 3h18v2H3V3zm2 6h14v2H5V9zm0 6h8v2H5v-2z" />
+                          </svg>
+                        </button>
+                      </td>
+                      <td className="px-6 py-4 text-right text-gray-600">{product.min_stock || 0}</td>
+                      <td className="px-6 py-4 text-right">
+                        <span className={`font-bold ${
+                          product.stock === 0 ? "text-red-600" :
+                          product.stock <= (product.min_stock || 0) ? "text-orange-600" :
+                          "text-blue-600"
+                        }`}>
+                          {product.stock || 0} {product.unit || "pcs"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {showSelectedStockModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg max-h-[80vh] bg-white rounded-3xl overflow-hidden shadow-2xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 gap-3">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Daftar Barang Belanja</h3>
+                <p className="text-sm text-gray-500">Berisi nama produk yang dipilih.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={copySelectedStockToClipboard}
+                  disabled={selectedStockProducts.length === 0}
+                  className="inline-flex items-center justify-center h-10 w-10 rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  aria-label="Copy daftar ke clipboard"
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => setShowSelectedStockModal(false)}
+                  className="text-gray-500 hover:text-gray-700 rounded-full p-2"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            <div className="px-6 py-6 max-h-[60vh] overflow-y-auto">
+              <pre className="whitespace-pre-wrap text-sm leading-7 text-gray-800 bg-slate-50 rounded-2xl p-4 border border-gray-200">
+{selectedStockProductsText}
+              </pre>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end">
+              <button
+                onClick={() => setShowSelectedStockModal(false)}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showStockCard && stockCardProduct && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-semibold text-gray-900">Kartu Stok - {stockCardProduct.name}</h3>
+                <button
+                  onClick={() => setShowStockCard(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XCircle className="h-6 w-6" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm text-gray-600">Stok Saat Ini</label>
+                  <div className="mt-1 font-semibold text-gray-900">
+                    {stockCardProduct.stock} {stockCardProduct.unit}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600">Min. Stok</label>
+                  <div className="mt-1 text-gray-900">
+                    {stockCardProduct.min_stock} {stockCardProduct.unit}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-gray-200 bg-white">
+              <h4 className="font-semibold text-gray-900 mb-3">Riwayat Stok</h4>
+              {stockHistoryLoading ? (
+                <div className="text-sm text-gray-500">Memuat riwayat...</div>
+              ) : stockHistoryError ? (
+                <div className="text-sm text-red-500">{stockHistoryError}</div>
+              ) : stockHistory.length === 0 ? (
+                <div className="text-sm text-gray-500">Belum ada riwayat stok.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="text-xs text-gray-500 uppercase">
+                      <tr>
+                        <th className="px-2 py-2">Tanggal</th>
+                        <th className="px-2 py-2">Keluar</th>
+                        <th className="px-2 py-2">Masuk</th>
+                        <th className="px-2 py-2">Saldo</th>
+                        <th className="px-2 py-2">Catatan</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-gray-700">
+                      {(() => {
+                        const rev = [...stockHistory].reverse();
+                        const totalPages = Math.max(1, Math.ceil(rev.length / STOCK_HISTORY_PAGE_SIZE));
+                        const page = Math.max(0, Math.min(stockHistoryPage, totalPages - 1));
+                        const start = page * STOCK_HISTORY_PAGE_SIZE;
+                        const paged = rev.slice(start, start + STOCK_HISTORY_PAGE_SIZE);
+                        const startBalance =
+                          rev.length > 0 ? rev[0]._balance - (rev[0]._qty || 0) : stockCardProduct.stock || 0;
+
+                        return (
+                          <>
+                            <tr className="border-t">
+                              <td className="px-2 py-2">-</td>
+                              <td className="px-2 py-2">-</td>
+                              <td className="px-2 py-2">-</td>
+                              <td className="px-2 py-2 font-semibold">{startBalance}</td>
+                              <td className="px-2 py-2">Saldo Awal</td>
+                            </tr>
+                            {paged.map((r) => (
+                              <tr
+                                key={r.id || `${r.created_at}-${r._qty}`}
+                                className="border-t"
+                              >
+                                <td className="px-2 py-2">
+                                  {new Date(r.created_at).toLocaleString("id-ID", {
+                                    timeZone: "Asia/Jakarta",
+                                  })}
+                                </td>
+                                <td className="px-2 py-2">{r._qty < 0 ? Math.abs(r._qty) : "-"}</td>
+                                <td className="px-2 py-2">{r._qty > 0 ? r._qty : "-"}</td>
+                                <td className="px-2 py-2">{r._balance}</td>
+                                <td className="px-2 py-2">{r.note || r.notes || "-"}</td>
+                              </tr>
+                            ))}
+                            <tr>
+                              <td colSpan={5} className="px-2 py-3">
+                                <div className="flex items-center justify-between">
+                                  <div className="text-xs text-gray-500">
+                                    Menampilkan {start + 1} - {Math.min(start + STOCK_HISTORY_PAGE_SIZE, rev.length)} dari {rev.length} entri
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={() => setStockHistoryPage((p) => Math.max(0, p - 1))}
+                                      disabled={page === 0}
+                                      className={`px-3 py-1 rounded-lg border ${
+                                        page === 0
+                                          ? "text-gray-400 border-gray-200"
+                                          : "text-gray-700 border-gray-300 hover:bg-gray-50"
+                                      }`}
+                                    >
+                                      Prev
+                                    </button>
+                                    <button
+                                      onClick={() => setStockHistoryPage((p) => Math.min(totalPages - 1, p + 1))}
+                                      disabled={page >= totalPages - 1}
+                                      className={`px-3 py-1 rounded-lg border ${
+                                        page >= totalPages - 1
+                                          ? "text-gray-400 border-gray-200"
+                                          : "text-gray-700 border-gray-300 hover:bg-gray-50"
+                                      }`}
+                                    >
+                                      Next
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          </>
+                        );
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t border-gray-200 bg-gray-50 flex justify-end">
+              <button
+                onClick={() => setShowStockCard(false)}
+                className="px-6 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="mb-8">
@@ -831,11 +1514,19 @@ const Pembelian: React.FC = () => {
           Riwayat & Rekap
           {activeTab === "purchaseList" && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600" />}
         </button>
+        <button
+          onClick={() => setActiveTab("stock")}
+          className={`pb-4 px-2 font-medium transition-colors relative ${activeTab === "stock" ? "text-blue-600" : "text-gray-500 hover:text-gray-700"}`}
+        >
+          Stock
+          {activeTab === "stock" && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600" />}
+        </button>
       </div>
 
       <div className="mt-6">
         {activeTab === "purchases" && renderPurchasesTab()}
         {activeTab === "purchaseList" && renderPurchaseListTab()}
+        {activeTab === "stock" && renderStockTab()}
       </div>
 
       {/* Form Purchase Order Modal */}
