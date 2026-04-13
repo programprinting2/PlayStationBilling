@@ -51,6 +51,8 @@ const Pembelian: React.FC = () => {
 
   const [poDetail, setPoDetail] = useState<any | null>(null);
   const [expandedPoId, setExpandedPoId] = useState<string | null>(null);
+  const [expandedRekapDate, setExpandedRekapDate] = useState<string | null>(null);
+  const [expandedRekapPerBarang, setExpandedRekapPerBarang] = useState<string | null>(null);
 
   const [purchaseTabView, setPurchaseTabView] = useState<"daftar" | "rekapTanggalBarang" | "rekapPerBarang">("daftar");
   const [daftarSearch, setDaftarSearch] = useState("");
@@ -307,7 +309,14 @@ const Pembelian: React.FC = () => {
           if (!pEntry.dates[date]) pEntry.dates[date] = { qty: 0, total: 0, pos: [] };
           pEntry.dates[date].qty += qty;
           pEntry.dates[date].total += total;
-          pEntry.dates[date].pos.push({ poId: item.po_id, poNumber: po.po_number, supplierName: suppliers.find(s => s.id === po.supplier_id)?.name || "" });
+          pEntry.dates[date].pos.push({
+            poId: item.po_id,
+            poNumber: po.po_number,
+            supplierName: suppliers.find(s => s.id === po.supplier_id)?.name || "",
+            qty,
+            total,
+            date,
+          });
         }
         setRekapPerBarangData(map);
       } catch (err: any) {
@@ -442,33 +451,26 @@ const Pembelian: React.FC = () => {
     }
   };
 
-  const handleEditClick = async (po: any) => {
-    try {
-      const { data: items, error } = await supabase
-        .from("purchase_order_items")
-        .select("*")
-        .eq("po_id", po.id);
-      
-      if (error) throw error;
+  const handleDeletePo = async (po: any) => {
+    const res = await Swal.fire({
+      title: "Hapus Purchase Order?",
+      text: "Data PO dan item-itemnya akan dihapus permanen. Stok akan dikembalikan ke sistem.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#d33",
+      cancelButtonColor: "#3085d6",
+      confirmButtonText: "Ya, Hapus",
+      cancelButtonText: "Batal"
+    });
 
-      setNewPurchase({
-        supplierId: po.supplier_id,
-        items: (items || []).map((it: any) => ({
-          id: it.id,
-          productId: it.product_id,
-          productName: it.product_name,
-          quantity: it.quantity,
-          unitCost: it.unit_cost,
-          total: it.total
-        })),
-        notes: po.notes || "",
-        expectedDate: po.expected_date ? po.expected_date.split('T')[0] : "",
-        orderDate: po.order_date
-      });
-      setEditingPoId(po.id);
-      setShowPurchaseForm(true);
-    } catch (err: any) {
-      Swal.fire("Error", "Gagal memuat detail barang: " + err.message, "error");
+    if (res.isConfirmed) {
+      try {
+        await db.purchases.delete(po.id);
+        fetchPurchaseOrders();
+        Swal.fire("Dihapus", "Purchase Order berhasil dihapus", "success");
+      } catch (err: any) {
+        Swal.fire("Gagal", err.message, "error");
+      }
     }
   };
 
@@ -886,6 +888,10 @@ const Pembelian: React.FC = () => {
     return dateMatch && searchMatch;
   });
 
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [daftarSearch, daftarPeriod, daftarDateRange.start, daftarDateRange.end]);
+
   const renderPurchasesTab = () => (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -925,13 +931,22 @@ const Pembelian: React.FC = () => {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50">
-          <h3 className="font-semibold text-gray-900">Purchase History</h3>
-          <button onClick={fetchPurchaseOrders} className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1">
-            <RefreshCw className="h-4 w-4" /> Refresh
-          </button>
+        <div className="p-4 border-b border-gray-100 bg-gray-50">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-gray-900">Purchase History</h3>
+            <button onClick={fetchPurchaseOrders} className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1">
+              <RefreshCw className="h-4 w-4" /> Refresh
+            </button>
+          </div>
+          <PurchaseFilters
+            search={daftarSearch}
+            onSearch={setDaftarSearch}
+            period={daftarPeriod}
+            onPeriodChange={setDaftarPeriod}
+            dateRange={daftarDateRange}
+            onDateRangeChange={setDaftarDateRange}
+          />
         </div>
-        {/* Render list similar to Products.tsx but cleaned up */}
         <div className="overflow-x-auto">
            <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -945,20 +960,31 @@ const Pembelian: React.FC = () => {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {(() => {
-                  const totalPages = Math.ceil(purchaseOrders.length / itemsPerPage);
+                  const totalPages = Math.ceil(filteredPurchaseOrdersForDaftar.length / itemsPerPage);
                   const startIndex = (historyPage - 1) * itemsPerPage;
-                  const currentOrders = purchaseOrders.slice(startIndex, startIndex + itemsPerPage);
+                  const currentOrders = filteredPurchaseOrdersForDaftar.slice(startIndex, startIndex + itemsPerPage);
                   
                   return currentOrders.map((po) => (
                     <React.Fragment key={po.id}>
                       <tr className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 font-medium text-blue-600">{po.po_number || po.id}</td>
+                        <td className="px-6 py-4">
+                          <button
+                            onClick={() => openPoDetail(po)}
+                            className="font-medium text-blue-600 hover:text-blue-800 transition-colors flex items-center gap-2"
+                          >
+                            {po.po_number || po.id}
+                            <ChevronRight className={`h-4 w-4 transform transition-transform ${expandedPoId === po.id ? 'rotate-90' : ''}`} />
+                          </button>
+                        </td>
                         <td className="px-6 py-4">{suppliers.find(s => s.id === po.supplier_id)?.name || "-"}</td>
                         <td className="px-6 py-4 text-gray-500">{new Date(po.order_date).toLocaleDateString("id-ID")}</td>
                         <td className="px-6 py-4 text-right font-semibold">Rp {Number(po.total_amount).toLocaleString("id-ID")}</td>
                         <td className="px-6 py-4 text-center">
-                          <button onClick={() => openPoDetail(po)} className="text-gray-400 hover:text-blue-600 p-1">
-                            <ChevronRight className={`h-5 w-5 transform transition-transform ${expandedPoId === po.id ? 'rotate-90' : ''}`} />
+                          <button onClick={() => handleEditClick(po)} className="text-gray-400 hover:text-blue-600 p-1 mr-2">
+                            <Edit className="h-4 w-4" />
+                          </button>
+                          <button onClick={() => handleDeletePo(po)} className="text-gray-400 hover:text-red-600 p-1">
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         </td>
                       </tr>
@@ -1006,10 +1032,10 @@ const Pembelian: React.FC = () => {
         </div>
         
         {/* Pagination Controls */}
-        {purchaseOrders.length > itemsPerPage && (
+        {filteredPurchaseOrdersForDaftar.length > itemsPerPage && (
           <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
             <p className="text-sm text-gray-600">
-              Showing <span className="font-medium">{(historyPage - 1) * itemsPerPage + 1}</span> to <span className="font-medium">{Math.min(historyPage * itemsPerPage, purchaseOrders.length)}</span> of <span className="font-medium">{purchaseOrders.length}</span> results
+              Showing <span className="font-medium">{(historyPage - 1) * itemsPerPage + 1}</span> to <span className="font-medium">{Math.min(historyPage * itemsPerPage, filteredPurchaseOrdersForDaftar.length)}</span> of <span className="font-medium">{filteredPurchaseOrdersForDaftar.length}</span> results
             </p>
             <div className="flex gap-2">
               <button
@@ -1020,8 +1046,8 @@ const Pembelian: React.FC = () => {
                 Previous
               </button>
               <button
-                onClick={() => setHistoryPage(prev => Math.min(Math.ceil(purchaseOrders.length / itemsPerPage), prev + 1))}
-                disabled={historyPage >= Math.ceil(purchaseOrders.length / itemsPerPage)}
+                onClick={() => setHistoryPage(prev => Math.min(Math.ceil(filteredPurchaseOrdersForDaftar.length / itemsPerPage), prev + 1))}
+                disabled={historyPage >= Math.ceil(filteredPurchaseOrdersForDaftar.length / itemsPerPage)}
                 className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium disabled:opacity-50 hover:bg-white"
               >
                 Next
@@ -1109,32 +1135,49 @@ const Pembelian: React.FC = () => {
           <div className="bg-white rounded-xl shadow-sm border p-4">
              {rekapTanggalLoading ? <div className="text-center py-10">Memuat...</div> : 
               Object.keys(rekapTanggalData).length === 0 ? <div className="text-center py-10 text-gray-400">Tidak ada data</div> :
-              Object.entries(rekapTanggalData).map(([date, data]: [string, any]) => (
-                <div key={date} className="mb-6 border-b pb-4 last:border-0">
-                  <div className="flex justify-between items-center mb-2 bg-gray-50 p-2 rounded">
-                    <h4 className="font-bold text-gray-900">{new Date(date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</h4>
-                    <span className="font-bold text-blue-700">Total: Rp {data.dateTotal.toLocaleString()}</span>
+              Object.entries(rekapTanggalData).map(([date, data]: [string, any]) => {
+                const isOpen = expandedRekapDate === date;
+                return (
+                  <div key={date} className="mb-4 border rounded-xl overflow-hidden bg-white shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedRekapDate(isOpen ? null : date)}
+                      className="w-full flex items-center justify-between gap-4 p-4 bg-slate-50 hover:bg-slate-100 transition"
+                    >
+                      <div>
+                        <h4 className="font-bold text-gray-900">{new Date(date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</h4>
+                        <p className="text-sm text-gray-500">{Object.keys(data.products).length} produk</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold text-blue-700">Rp {data.dateTotal.toLocaleString()}</span>
+                        <ChevronRight className={`h-4 w-4 text-gray-500 transform transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                      </div>
+                    </button>
+                    {isOpen && (
+                      <div className="px-4 pb-4 pt-2">
+                        <table className="min-w-full text-sm">
+                          <thead>
+                            <tr className="text-gray-500 border-b">
+                              <th className="text-left py-1">Produk</th>
+                              <th className="text-right py-1">Qty</th>
+                              <th className="text-right py-1">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(data.products).map(([id, p]: [string, any]) => (
+                              <tr key={id} className="border-b border-gray-100">
+                                <td className="py-2">{p.name}</td>
+                                <td className="text-right py-2">{p.qty}</td>
+                                <td className="text-right py-2 font-medium">Rp {p.total.toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
-                  <table className="min-w-full text-sm">
-                    <thead>
-                      <tr className="text-gray-500 border-b">
-                        <th className="text-left py-1">Produk</th>
-                        <th className="text-right py-1">Qty</th>
-                        <th className="text-right py-1">Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(data.products).map(([id, p]: [string, any]) => (
-                        <tr key={id} className="border-b border-gray-50">
-                          <td className="py-2">{p.name}</td>
-                          <td className="text-right py-2">{p.qty}</td>
-                          <td className="text-right py-2 font-medium">Rp {p.total.toLocaleString()}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
+                );
+              })}
           </div>
         </div>
       )}
@@ -1142,28 +1185,66 @@ const Pembelian: React.FC = () => {
       {purchaseTabView === "rekapPerBarang" && (
          <div className="space-y-4">
             <PurchaseFilters search={rekapPerBarangSearch} onSearch={setRekapPerBarangSearch} period={rekapPerBarangPeriod} onPeriodChange={setRekapPerBarangPeriod} dateRange={rekapPerBarangDateRange} onDateRangeChange={setRekapPerBarangDateRange} />
-            <div className="bg-white rounded-xl shadow-sm border p-4">
-              {rekapPerBarangLoading ? <div className="text-center py-10">Memuat...</div> :
-                Object.keys(rekapPerBarangData).length === 0 ? <div className="text-center py-10 text-gray-400">Tidak ada data</div> :
-                <table className="min-w-full text-sm">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="text-left px-4 py-2">Nama Produk</th>
-                      <th className="text-right px-4 py-2">Total Qty</th>
-                      <th className="text-right px-4 py-2">Total Pembelian</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(rekapPerBarangData).map(([id, p]: [string, any]) => (
-                      <tr key={id} className="border-b hover:bg-gray-50">
-                        <td className="px-4 py-3 font-medium">{p.name}</td>
-                        <td className="px-4 py-3 text-right">{p.qty}</td>
-                        <td className="px-4 py-3 text-right font-bold text-blue-700">Rp {p.total.toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              }
+            <div className="space-y-4">
+              {rekapPerBarangLoading ? (
+                <div className="bg-white rounded-xl shadow-sm border p-4 text-center py-10">Memuat...</div>
+              ) : Object.keys(rekapPerBarangData).length === 0 ? (
+                <div className="bg-white rounded-xl shadow-sm border p-4 text-center py-10 text-gray-400">Tidak ada data</div>
+              ) : (
+                Object.entries(rekapPerBarangData).map(([id, p]: [string, any]) => {
+                  const isOpen = expandedRekapPerBarang === id;
+                  const rows = Object.entries(p.dates).flatMap(([date, dateGroup]: [string, any]) =>
+                    (dateGroup.pos || []).map((row: any, index: number) => ({ ...row, date, index }))
+                  );
+
+                  return (
+                    <div key={id} className="border rounded-xl overflow-hidden bg-white shadow-sm">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedRekapPerBarang(isOpen ? null : id)}
+                        className="w-full flex items-center justify-between gap-4 p-4 bg-slate-50 hover:bg-slate-100 transition"
+                      >
+                        <div>
+                          <h4 className="font-bold text-gray-900">{p.name}</h4>
+                          <p className="text-sm text-gray-500">{rows.length} baris pembelian • {p.qty} qty</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="font-bold text-blue-700">Rp {Number(p.total).toLocaleString()}</span>
+                          <ChevronRight className={`h-4 w-4 text-gray-500 transform transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                        </div>
+                      </button>
+                      {isOpen && (
+                        <div className="px-4 pb-4 pt-2">
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full text-sm">
+                              <thead>
+                                <tr className="text-gray-500 border-b">
+                                  <th className="text-left px-3 py-2">PO</th>
+                                  <th className="text-left px-3 py-2">Tanggal</th>
+                                  <th className="text-left px-3 py-2">Supplier</th>
+                                  <th className="text-right px-3 py-2">Jumlah</th>
+                                  <th className="text-right px-3 py-2">Harga</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {rows.map((row: any) => (
+                                  <tr key={`${row.poId}-${row.index}`} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                                    <td className="px-3 py-2">{row.poNumber || row.poId}</td>
+                                    <td className="px-3 py-2">{row.date !== "unknown" ? new Date(row.date).toLocaleDateString('id-ID') : 'Unknown'}</td>
+                                    <td className="px-3 py-2">{row.supplierName || '-'}</td>
+                                    <td className="px-3 py-2 text-right">{row.qty}</td>
+                                    <td className="px-3 py-2 text-right font-medium">Rp {Number(row.total).toLocaleString()}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
             </div>
          </div>
       )}
