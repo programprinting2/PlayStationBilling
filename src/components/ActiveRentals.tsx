@@ -459,6 +459,7 @@ const ActiveRentals: React.FC = () => {
   const [catalogGames, setCatalogGames] = useState<Game[]>([]);
   const [catalogConsoles, setCatalogConsoles] = useState<any[]>([]);
   const [gameSearchTerm, setGameSearchTerm] = useState("");
+  const [gameSearchPlatform, setGameSearchPlatform] = useState<string>("all");
   const [gameSearchLoading, setGameSearchLoading] = useState(false);
 
   const handleOpenGameSearch = async () => {
@@ -12390,6 +12391,19 @@ const ActiveRentals: React.FC = () => {
                   autoFocus
                 />
               </div>
+              <div className="w-full sm:w-auto">
+                <label className="block text-sm text-gray-600 mb-2">Filter By Platform</label>
+                <select
+                  value={gameSearchPlatform}
+                  onChange={(e) => setGameSearchPlatform(e.target.value)}
+                  className="w-full sm:w-64 px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="all">All Platforms</option>
+                  <option value="ET006">Playstation 3</option>
+                  <option value="ET001">PlayStation 4</option>
+                  <option value="ET002">PlayStation 5</option>
+                </select>
+              </div>
             </div>
 
             <div className="p-6 overflow-y-auto flex-1 bg-gray-50">
@@ -12401,7 +12415,12 @@ const ActiveRentals: React.FC = () => {
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                   {catalogGames
-                    .filter((g) => g.is_active && g.title.toLowerCase().includes(gameSearchTerm.toLowerCase()))
+                    .filter(
+                      (g) =>
+                        g.is_active &&
+                        g.title.toLowerCase().includes(gameSearchTerm.toLowerCase()) &&
+                        (gameSearchPlatform === "all" || g.platform.includes(gameSearchPlatform)),
+                    )
                     .map((game) => {
                       const availableConsoles = catalogConsoles.filter((c) => c.installed_games && c.installed_games.includes(game.id));
                       
@@ -12439,7 +12458,12 @@ const ActiveRentals: React.FC = () => {
                       );
                     })}
                     
-                  {catalogGames.length > 0 && catalogGames.filter((g) => g.is_active && g.title.toLowerCase().includes(gameSearchTerm.toLowerCase())).length === 0 && (
+                  {catalogGames.length > 0 && catalogGames.filter(
+                    (g) =>
+                      g.is_active &&
+                      g.title.toLowerCase().includes(gameSearchTerm.toLowerCase()) &&
+                      (gameSearchPlatform === "all" || g.platform.includes(gameSearchPlatform)),
+                  ).length === 0 && (
                     <div className="col-span-full py-12 text-center text-gray-500 border border-dashed border-gray-300 rounded-lg">
                       <Gamepad2 className="h-12 w-12 mx-auto text-gray-300 mb-3" />
                       <p>Tidak ada game yang cocok dengan pencarian '{gameSearchTerm}'</p>
