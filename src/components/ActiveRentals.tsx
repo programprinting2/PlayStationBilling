@@ -460,10 +460,32 @@ const ActiveRentals: React.FC = () => {
   const [catalogConsoles, setCatalogConsoles] = useState<any[]>([]);
   const [gameSearchTerm, setGameSearchTerm] = useState("");
   const [gameSearchPlatform, setGameSearchPlatform] = useState<string>("all");
+  const [gameSearchGenre, setGameSearchGenre] = useState<string>("all");
+  const [gameSearchConsole, setGameSearchConsole] = useState<string>("all");
   const [gameSearchLoading, setGameSearchLoading] = useState(false);
+  const availableGenres = useMemo(() => {
+    const genres = new Set<string>();
+    catalogGames.forEach((game) => {
+      if (game.genre) {
+        game.genre.forEach((g) => genres.add(g));
+      }
+    });
+    return Array.from(genres).sort();
+  }, [catalogGames]);
 
-  const handleOpenGameSearch = async () => {
+  // Map platform ID to human readable name if possible, or just use as is
+  const platformNames: Record<string, string> = {
+    ET006: "PlayStation 3",
+    ET001: "PlayStation 4",
+    ET002: "PlayStation 5",
+  };
+
+  const handleOpenGameSearch = async (consoleId?: string) => {
     setShowGameSearchModal(true);
+    setGameSearchConsole(consoleId || "all");
+    setGameSearchGenre("all");
+    setGameSearchPlatform("all");
+    setGameSearchTerm(""); // Also reset search term for better UX
     setGameSearchLoading(true);
     try {
       const [gamesData, consolesData] = await Promise.all([
@@ -9179,38 +9201,47 @@ const ActiveRentals: React.FC = () => {
                                     ) : (
                                       <Unlock className="h-4 w-4 text-red-700" />
                                     )}
-                                    <div className="flex gap-1">
-                                      {activeSession?.is_voucher_used && (
+                                      <div className="flex gap-1">
+                                        <button
+                                          className="rounded-md p-1 hover:bg-gray-100 transition-colors"
+                                          onClick={() =>
+                                            handleOpenGameSearch(console.id)
+                                          }
+                                          title="Cari game di console ini"
+                                        >
+                                          <Gamepad2 className="h-4 w-4 text-blue-600" />
+                                        </button>
+                                        {activeSession?.is_voucher_used && (
+                                          <button
+                                            className="rounded-md p-1"
+                                            onClick={async () => {
+                                              setScannedCardUID(
+                                                activeSession.card_uid!,
+                                              );
+                                              await fetchCardHistory(
+                                                activeSession.card_uid!,
+                                              );
+                                              setShowHistoryPointModal(true);
+                                            }}
+                                          >
+                                            <Info className="h-4 w-4 text-gray-600" />
+                                          </button>
+                                        )}
                                         <button
                                           className="rounded-md p-1"
                                           onClick={async () => {
-                                            setScannedCardUID(
-                                              activeSession.card_uid!,
+                                            setSelectedConsoleForHistory(
+                                              console.name,
                                             );
-                                            await fetchCardHistory(
-                                              activeSession.card_uid!,
+                                            await loadConsoleHistoryToday(
+                                              console.id,
                                             );
-                                            setShowHistoryPointModal(true);
+                                            setShowConsoleHistoryModal(true);
                                           }}
                                         >
-                                          <Info className="h-4 w-4 text-gray-600" />
+                                          <History className="h-4 w-4 text-blue-600" />
                                         </button>
-                                      )}
-                                      <button
-                                        className="rounded-md p-1"
-                                        onClick={async () => {
-                                          setSelectedConsoleForHistory(
-                                            console.name,
-                                          );
-                                          await loadConsoleHistoryToday(
-                                            console.id,
-                                          );
-                                          setShowConsoleHistoryModal(true);
-                                        }}
-                                      >
-                                        <History className="h-4 w-4 text-blue-600" />
-                                      </button>
-                                    </div>
+                                      </div>
                                   </div>
                                 </div>
 
@@ -9672,23 +9703,6 @@ const ActiveRentals: React.FC = () => {
                   {/* Left: Status & Console Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-2">
-                      <input
-                        type="checkbox"
-                        checked={selectedConsoleIds.includes(console.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedConsoleIds((prev) => [
-                              ...prev,
-                              console.id,
-                            ]);
-                          } else {
-                            setSelectedConsoleIds((prev) =>
-                              prev.filter((id) => id !== console.id),
-                            );
-                          }
-                        }}
-                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                      />
                       <div
                         className={`w-3 h-3 rounded-full ${
                           console.status === "available"
@@ -9707,6 +9721,13 @@ const ActiveRentals: React.FC = () => {
                         <Unlock className="h-4 w-4 text-red-700" />
                       )}
                       <div className="flex gap-1">
+                        <button
+                          className="rounded-md p-1 hover:bg-gray-100 transition-colors"
+                          onClick={() => handleOpenGameSearch(console.id)}
+                          title="Cari game di console ini"
+                        >
+                          <Gamepad2 className="h-4 w-4 text-blue-600" />
+                        </button>
                         {activeSession?.is_voucher_used && (
                           <button
                             className="rounded-md p-1"
@@ -10082,24 +10103,6 @@ const ActiveRentals: React.FC = () => {
                   >
                     <div className="flex items-center gap-3 justify-between">
                       <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={selectedConsoleIds.includes(console.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedConsoleIds((prev) => [
-                                ...prev,
-                                console.id,
-                              ]);
-                            } else {
-                              setSelectedConsoleIds((prev) =>
-                                prev.filter((id) => id !== console.id),
-                              );
-                            }
-                          }}
-                          className="h-5 w-5 rounded border-white/30 bg-transparent text-white focus:ring-white"
-                          onClick={(e) => e.stopPropagation()}
-                        />
                         <Gamepad2 className="h-6 w-6" />
                         <h3 className="font-semibold text-lg">
                           {console.name}
@@ -10165,6 +10168,13 @@ const ActiveRentals: React.FC = () => {
                         </span>
                       )} */}
                       <div className="flex gap-1">
+                        <button
+                          className="rounded-md p-1 hover:bg-white/10 transition-colors"
+                          onClick={() => handleOpenGameSearch(console.id)}
+                          title="Cari game di console ini"
+                        >
+                          <Gamepad2 className="h-5 w-5 text-white" />
+                        </button>
                         {activeSession?.is_voucher_used && (
                           <button
                             className="rounded-md p-1"
@@ -12379,30 +12389,66 @@ const ActiveRentals: React.FC = () => {
               </button>
             </div>
             
-            <div className="p-6 border-b bg-gray-50 flex flex-col sm:flex-row gap-4 items-center">
-              <div className="relative flex-1">
-                <Search className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Ketik judul game..."
-                  value={gameSearchTerm}
-                  onChange={(e) => setGameSearchTerm(e.target.value)}
-                  className="pl-10 pr-4 py-3 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg"
-                  autoFocus
-                />
-              </div>
-              <div className="w-full sm:w-auto">
-                <label className="block text-sm text-gray-600 mb-2">Filter By Platform</label>
-                <select
-                  value={gameSearchPlatform}
-                  onChange={(e) => setGameSearchPlatform(e.target.value)}
-                  className="w-full sm:w-64 px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="all">All Platforms</option>
-                  <option value="ET006">Playstation 3</option>
-                  <option value="ET001">PlayStation 4</option>
-                  <option value="ET002">PlayStation 5</option>
-                </select>
+            <div className="p-6 border-b bg-gray-50">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                <div className="md:col-span-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                    <Search className="h-4 w-4" /> Cari Judul
+                  </label>
+                  <div className="relative">
+                    <Search className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Judul game..."
+                      value={gameSearchTerm}
+                      onChange={(e) => setGameSearchTerm(e.target.value)}
+                      className="pl-9 pr-4 py-2.5 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      autoFocus
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Platform</label>
+                  <select
+                    value={gameSearchPlatform}
+                    onChange={(e) => setGameSearchPlatform(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                  >
+                    <option value="all">Semua Platform</option>
+                    {Object.entries(platformNames).map(([id, name]) => (
+                      <option key={id} value={id}>{name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Genre</label>
+                  <select
+                    value={gameSearchGenre}
+                    onChange={(e) => setGameSearchGenre(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                  >
+                    <option value="all">Semua Genre</option>
+                    {availableGenres.map((genre) => (
+                      <option key={genre} value={genre}>{genre}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Console</label>
+                  <select
+                    value={gameSearchConsole}
+                    onChange={(e) => setGameSearchConsole(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                  >
+                    <option value="all">Semua Console</option>
+                    {catalogConsoles.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -12419,7 +12465,9 @@ const ActiveRentals: React.FC = () => {
                       (g) =>
                         g.is_active &&
                         g.title.toLowerCase().includes(gameSearchTerm.toLowerCase()) &&
-                        (gameSearchPlatform === "all" || g.platform.includes(gameSearchPlatform)),
+                        (gameSearchPlatform === "all" || (g.platform && g.platform.includes(gameSearchPlatform))) &&
+                        (gameSearchGenre === "all" || (g.genre && g.genre.includes(gameSearchGenre))) &&
+                        (gameSearchConsole === "all" || (catalogConsoles.find(c => c.id === gameSearchConsole)?.installed_games?.includes(g.id)))
                     )
                     .map((game) => {
                       const availableConsoles = catalogConsoles.filter((c) => c.installed_games && c.installed_games.includes(game.id));
@@ -12462,7 +12510,9 @@ const ActiveRentals: React.FC = () => {
                     (g) =>
                       g.is_active &&
                       g.title.toLowerCase().includes(gameSearchTerm.toLowerCase()) &&
-                      (gameSearchPlatform === "all" || g.platform.includes(gameSearchPlatform)),
+                      (gameSearchPlatform === "all" || (g.platform && g.platform.includes(gameSearchPlatform))) &&
+                      (gameSearchGenre === "all" || (g.genre && g.genre.includes(gameSearchGenre))) &&
+                      (gameSearchConsole === "all" || (catalogConsoles.find(c => c.id === gameSearchConsole)?.installed_games?.includes(g.id)))
                   ).length === 0 && (
                     <div className="col-span-full py-12 text-center text-gray-500 border border-dashed border-gray-300 rounded-lg">
                       <Gamepad2 className="h-12 w-12 mx-auto text-gray-300 mb-3" />
