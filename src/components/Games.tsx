@@ -704,7 +704,7 @@ const Games: React.FC = () => {
                         <img
                           src={gameForm.cover_image_url}
                           alt="Cover preview"
-                          className="max-w-xs max-h-48 object-cover rounded-lg border border-gray-200"
+                          className="max-w-xs max-h-48 object-contain rounded-lg border border-gray-200 bg-gray-50 p-1"
                           onError={(e) => {
                             e.currentTarget.style.display = "none";
                           }}
@@ -769,7 +769,7 @@ const Games: React.FC = () => {
                   <img
                     src={game.cover_image_url}
                     alt={`${game.title} cover`}
-                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                    className="w-full h-full object-contain bg-gray-100 transition-transform duration-300"
                     loading="lazy"
                     onLoad={(e) => {
                       const placeholder = e.currentTarget
