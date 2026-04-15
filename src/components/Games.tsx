@@ -29,6 +29,8 @@ const Games: React.FC = () => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingGame, setEditingGame] = useState<Game | null>(null);
   const [selectedConsole, setSelectedConsole] = useState<string | null>(null);
+  const [searchGameInConsole, setSearchGameInConsole] = useState("");
+  const [expandedSection, setExpandedSection] = useState<"installed" | "notInstalled" | null>("notInstalled");
 
   // Form state for adding/editing games
   const [gameForm, setGameForm] = useState({
@@ -949,7 +951,7 @@ const Games: React.FC = () => {
                     <h4 className="text-sm font-medium text-gray-700 mb-2">
                       Installed Games ({console.installed_games?.length || 0})
                     </h4>
-                    <div className="space-y-2 max-h-32 overflow-y-auto">
+                    <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
                       {console.installed_games &&
                       console.installed_games.length > 0 ? (
                         console.installed_games.map((gameId) => {
@@ -957,18 +959,32 @@ const Games: React.FC = () => {
                           return game ? (
                             <div
                               key={gameId}
-                              className="flex items-center justify-between bg-gray-50 rounded p-2"
+                              className="relative group"
+                              title={game.title}
                             >
-                              <span className="text-sm font-medium">
-                                {game.title}
-                              </span>
+                              <div className="w-16 h-20 bg-gray-100 rounded border border-gray-200 overflow-hidden">
+                                {game.cover_image_url ? (
+                                  <img
+                                    src={game.cover_image_url}
+                                    alt={game.title}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      e.currentTarget.style.display = "none";
+                                    }}
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center bg-gray-100">
+                                    <Gamepad2 className="h-6 w-6 text-gray-300" />
+                                  </div>
+                                )}
+                              </div>
                               <button
                                 onClick={() =>
                                   handleAssignGame(console.id, game.id)
                                 }
-                                className="text-green-600 hover:text-green-800"
+                                className="absolute -top-2 -right-2 bg-green-600 hover:bg-green-700 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
                               >
-                                <Check className="h-4 w-4" />
+                                <Check className="h-3 w-3" />
                               </button>
                             </div>
                           ) : null;
@@ -1003,22 +1019,36 @@ const Games: React.FC = () => {
       {selectedConsole && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden">
-            <div className="p-6 border-b">
+            <div className="p-6 border-b space-y-4">
               <div className="flex justify-between items-center">
                 <h2 className="text-xl font-semibold">
                   Manage Games -{" "}
                   {consoles.find((c) => c.id === selectedConsole)?.name}
                 </h2>
                 <button
-                  onClick={() => setSelectedConsole(null)}
+                  onClick={() => {
+                    setSelectedConsole(null);
+                    setSearchGameInConsole("");
+                  }}
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <X className="h-6 w-6" />
                 </button>
               </div>
+
+              <div className="relative">
+                <Search className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Cari game berdasarkan judul..."
+                  value={searchGameInConsole}
+                  onChange={(e) => setSearchGameInConsole(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
             </div>
 
-            <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-180px)]">
               {(() => {
                 const console = consoles.find((c) => c.id === selectedConsole);
                 if (!console) return null;
@@ -1031,6 +1061,18 @@ const Games: React.FC = () => {
                     (availableGames.some((g) => g.id === game.id) ||
                       installedGames.includes(game.id))
                 );
+
+                const notInstalledGames = allRelevantGames
+                  .filter((game) => !installedGames.includes(game.id))
+                  .filter((game) =>
+                    game.title.toLowerCase().includes(searchGameInConsole.toLowerCase())
+                  );
+
+                const installedGamesList = allRelevantGames
+                  .filter((game) => installedGames.includes(game.id))
+                  .filter((game) =>
+                    game.title.toLowerCase().includes(searchGameInConsole.toLowerCase())
+                  );
 
                 if (allRelevantGames.length === 0) {
                   return (
@@ -1061,54 +1103,216 @@ const Games: React.FC = () => {
                   );
                 }
 
-                return (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {allRelevantGames.map((game) => {
-                      const isAvailable = availableGames.some(
-                        (g) => g.id === game.id
-                      );
-                      const isInstalled = installedGames.includes(game.id);
+                if (notInstalledGames.length === 0 && installedGamesList.length === 0) {
+                  return (
+                    <div className="text-center py-12">
+                      <div className="text-gray-400 mb-4">
+                        <svg
+                          className="mx-auto h-12 w-12"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                          />
+                        </svg>
+                      </div>
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">
+                        Game Tidak Ditemukan
+                      </h3>
+                      <p className="text-gray-500 mb-4">
+                        Tidak ada game dengan judul "{searchGameInConsole}"
+                      </p>
+                    </div>
+                  );
+                }
 
-                      return (
-                        <div key={game.id} className="border rounded-lg p-4">
-                          <div className="flex justify-between items-start mb-2">
-                            <h3 className="font-medium">{game.title}</h3>
-                            <div className="flex items-center gap-2">
-                              {isInstalled && (
-                                <Check className="h-4 w-4 text-green-600" />
-                              )}
-                              <button
-                                onClick={() =>
-                                  handleAssignGame(selectedConsole!, game.id)
-                                }
-                                className={`px-3 py-1 text-xs rounded ${
-                                  isInstalled
-                                    ? "bg-green-100 text-green-800 hover:bg-green-200"
-                                    : "bg-blue-100 text-blue-800 hover:bg-blue-200"
-                                }`}
-                              >
-                                {isInstalled ? "Installed" : "Install"}
-                              </button>
-                            </div>
+                return (
+                  <div className="space-y-4">
+                    {/* Belum Diinstall Accordion */}
+                    <div className="border rounded-lg overflow-hidden bg-white">
+                      <button
+                        onClick={() =>
+                          setExpandedSection(
+                            expandedSection === "notInstalled" ? null : "notInstalled"
+                          )
+                        }
+                        className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`w-5 h-5 flex items-center justify-center transition-transform ${
+                              expandedSection === "notInstalled" ? "rotate-90" : ""
+                            }`}
+                          >
+                            <svg
+                              className="w-5 h-5 text-gray-600"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M9 5l7 7-7 7"
+                              />
+                            </svg>
                           </div>
-                          <div className="text-sm text-gray-600">
-                            <p>
-                              {game.developer} • {game.release_year}
+                          <h3 className="font-semibold text-gray-900">
+                            Belum Diinstall
+                          </h3>
+                          <span className="ml-2 px-3 py-1 bg-blue-100 text-blue-800 text-xs rounded-full font-medium">
+                            {notInstalledGames.length}
+                          </span>
+                        </div>
+                      </button>
+
+                      {expandedSection === "notInstalled" && (
+                        <div className="px-6 py-4 border-t bg-gray-50">
+                          {notInstalledGames.length === 0 ? (
+                            <p className="text-center text-gray-500 py-8">
+                              Semua game sudah diinstall
                             </p>
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {game.platform.map((p) => (
-                                <span
-                                  key={p}
-                                  className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded"
+                          ) : (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                              {notInstalledGames.map((game) => (
+                                <div
+                                  key={game.id}
+                                  className="rounded-lg overflow-hidden border border-gray-200 hover:shadow-lg transition-shadow group bg-white"
                                 >
-                                  {getPlatformLabel(p)}
-                                </span>
+                                  <div className="relative bg-gray-100 aspect-[2/3] flex items-center justify-center overflow-hidden">
+                                    {game.cover_image_url ? (
+                                      <img
+                                        src={game.cover_image_url}
+                                        alt={game.title}
+                                        className="w-full h-full object-contain"
+                                        onError={(e) => {
+                                          e.currentTarget.style.display = "none";
+                                        }}
+                                      />
+                                    ) : (
+                                      <div className="flex items-center justify-center h-full bg-gradient-to-br from-blue-50 to-blue-100">
+                                        <Gamepad2 className="h-8 w-8 text-blue-300" />
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="p-2">
+                                    <h4 className="text-xs font-semibold text-gray-900 line-clamp-1 mb-1">
+                                      {game.title}
+                                    </h4>
+                                    <button
+                                      onClick={() =>
+                                        handleAssignGame(selectedConsole!, game.id)
+                                      }
+                                      className="w-full px-2 py-1 text-xs rounded font-medium transition-colors bg-blue-100 text-blue-800 hover:bg-blue-200"
+                                    >
+                                      Install
+                                    </button>
+                                  </div>
+                                </div>
                               ))}
                             </div>
-                          </div>
+                          )}
                         </div>
-                      );
-                    })}
+                      )}
+                    </div>
+
+                    {/* Sudah Diinstall Accordion */}
+                    <div className="border rounded-lg overflow-hidden bg-white">
+                      <button
+                        onClick={() =>
+                          setExpandedSection(
+                            expandedSection === "installed" ? null : "installed"
+                          )
+                        }
+                        className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`w-5 h-5 flex items-center justify-center transition-transform ${
+                              expandedSection === "installed" ? "rotate-90" : ""
+                            }`}
+                          >
+                            <svg
+                              className="w-5 h-5 text-gray-600"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M9 5l7 7-7 7"
+                              />
+                            </svg>
+                          </div>
+                          <h3 className="font-semibold text-gray-900">
+                            Sudah Diinstall
+                          </h3>
+                          <span className="ml-2 px-3 py-1 bg-green-100 text-green-800 text-xs rounded-full font-medium">
+                            {installedGamesList.length}
+                          </span>
+                        </div>
+                      </button>
+
+                      {expandedSection === "installed" && (
+                        <div className="px-6 py-4 border-t bg-gray-50">
+                          {installedGamesList.length === 0 ? (
+                            <p className="text-center text-gray-500 py-8">
+                              Belum ada game yang diinstall
+                            </p>
+                          ) : (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                              {installedGamesList.map((game) => (
+                                <div
+                                  key={game.id}
+                                  className="rounded-lg overflow-hidden border border-gray-200 hover:shadow-lg transition-shadow group bg-white"
+                                >
+                                  <div className="relative bg-gray-100 aspect-[2/3] flex items-center justify-center overflow-hidden">
+                                    {game.cover_image_url ? (
+                                      <img
+                                        src={game.cover_image_url}
+                                        alt={game.title}
+                                        className="w-full h-full object-contain"
+                                        onError={(e) => {
+                                          e.currentTarget.style.display = "none";
+                                        }}
+                                      />
+                                    ) : (
+                                      <div className="flex items-center justify-center h-full bg-gradient-to-br from-green-50 to-green-100">
+                                        <Gamepad2 className="h-8 w-8 text-green-300" />
+                                      </div>
+                                    )}
+                                    <div className="absolute top-2 right-2 bg-green-600 text-white rounded-full p-1">
+                                      <Check className="h-4 w-4" />
+                                    </div>
+                                  </div>
+                                  <div className="p-2">
+                                    <h4 className="text-xs font-semibold text-gray-900 line-clamp-1 mb-1">
+                                      {game.title}
+                                    </h4>
+                                    <button
+                                      onClick={() =>
+                                        handleAssignGame(selectedConsole!, game.id)
+                                      }
+                                      className="w-full px-2 py-1 text-xs rounded font-medium transition-colors bg-green-100 text-green-800 hover:bg-green-200"
+                                    >
+                                      Uninstall
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })()}
