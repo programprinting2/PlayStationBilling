@@ -31,6 +31,8 @@ const Games: React.FC = () => {
   const [selectedConsole, setSelectedConsole] = useState<string | null>(null);
   const [searchGameInConsole, setSearchGameInConsole] = useState("");
   const [expandedSection, setExpandedSection] = useState<"installed" | "notInstalled" | null>("notInstalled");
+  const [selectedNotInstalledGames, setSelectedNotInstalledGames] = useState<string[]>([]);
+  const [selectedInstalledGames, setSelectedInstalledGames] = useState<string[]>([]);
 
   // Form state for adding/editing games
   const [gameForm, setGameForm] = useState({
@@ -197,38 +199,65 @@ const Games: React.FC = () => {
     }
   };
 
-  const handleAssignGame = async (consoleId: string, gameId: string) => {
+  const handleAssignGame = async (consoleId: string, gameId: string, action?: 'install' | 'uninstall') => {
     try {
-      const console = consoles.find((c) => c.id === consoleId);
-      if (!console) {
-        Swal.fire("Error", "Console not found", "error");
-        return;
-      }
-
-      const availableGames = getAvailableGamesForConsole(console);
-      const installedGames = getInstalledGamesForConsole(console);
-
-      const isAvailable = availableGames.some((game) => game.id === gameId);
-      const isInstalled = installedGames.includes(gameId);
-
-      if (!isAvailable) {
-        Swal.fire("Error", "Game tidak tersedia untuk console ini", "error");
-        return;
-      }
-
-      if (isInstalled) {
-        await db.consoles.removeInstalledGame(consoleId, gameId);
-        Swal.fire("Berhasil", "Game berhasil dihapus dari console", "success");
-      } else {
-        // Add to installed
+      if (action === 'install') {
         await db.consoles.addInstalledGame(consoleId, gameId);
-        Swal.fire("Berhasil", "Game berhasil diinstall ke console", "success");
-      }
+      } else if (action === 'uninstall') {
+        await db.consoles.removeInstalledGame(consoleId, gameId);
+      } else {
+        // Original logic with state checks (for single operations)
+        const console = consoles.find((c) => c.id === consoleId);
+        if (!console) {
+          Swal.fire("Error", "Console not found", "error");
+          return;
+        }
 
-      loadData();
+        const availableGames = getAvailableGamesForConsole(console);
+        const installedGames = getInstalledGamesForConsole(console);
+
+        const isAvailable = availableGames.some((game) => game.id === gameId);
+        const isInstalled = installedGames.includes(gameId);
+
+        if (isInstalled) {
+          await db.consoles.removeInstalledGame(consoleId, gameId);
+        } else if (isAvailable) {
+          await db.consoles.addInstalledGame(consoleId, gameId);
+        } else {
+          Swal.fire("Error", "Game tidak tersedia untuk console ini", "error");
+          return;
+        }
+      }
     } catch (error) {
       console.error("Error updating game assignment:", error);
-      Swal.fire("Error", "Gagal memperbarui assignment game", "error");
+      throw error;
+    }
+  };
+
+  const handleBulkAssignGames = async (
+    consoleId: string,
+    gameIds: string[],
+    action: 'install' | 'uninstall'
+  ) => {
+    try {
+      // Must run sequentially - parallel (Promise.all) causes race condition
+      // because each db call reads the same initial array state before any write completes
+      for (const gameId of gameIds) {
+        if (action === 'install') {
+          await db.consoles.addInstalledGame(consoleId, gameId);
+        } else {
+          await db.consoles.removeInstalledGame(consoleId, gameId);
+        }
+      }
+      await loadData();
+      Swal.fire(
+        "Berhasil",
+        `${gameIds.length} game berhasil diproses`,
+        "success"
+      );
+    } catch (error) {
+      console.error("Error bulk assigning games:", error);
+      Swal.fire("Error", "Gagal memproses games", "error");
     }
   };
 
@@ -917,7 +946,7 @@ const Games: React.FC = () => {
       {/* Consoles View */}
       {viewMode === "consoles" && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {consoles.map((console) => {
+          {[...consoles].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })).map((console) => {
             const consoleGamesList = getConsoleGames(console.id);
             return (
               <div
@@ -980,7 +1009,7 @@ const Games: React.FC = () => {
                               </div>
                               <button
                                 onClick={() =>
-                                  handleAssignGame(console.id, game.id)
+                                  handleSingleAssignGame(console.id, game.id)
                                 }
                                 className="absolute -top-2 -right-2 bg-green-600 hover:bg-green-700 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
                               >
@@ -1029,6 +1058,8 @@ const Games: React.FC = () => {
                   onClick={() => {
                     setSelectedConsole(null);
                     setSearchGameInConsole("");
+                    setSelectedNotInstalledGames([]);
+                    setSelectedInstalledGames([]);
                   }}
                   className="text-gray-400 hover:text-gray-600"
                 >
@@ -1179,43 +1210,76 @@ const Games: React.FC = () => {
                               Semua game sudah diinstall
                             </p>
                           ) : (
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                              {notInstalledGames.map((game) => (
-                                <div
-                                  key={game.id}
-                                  className="rounded-lg overflow-hidden border border-gray-200 hover:shadow-lg transition-shadow group bg-white"
-                                >
-                                  <div className="relative bg-gray-100 aspect-[2/3] flex items-center justify-center overflow-hidden">
-                                    {game.cover_image_url ? (
-                                      <img
-                                        src={game.cover_image_url}
-                                        alt={game.title}
-                                        className="w-full h-full object-contain"
-                                        onError={(e) => {
-                                          e.currentTarget.style.display = "none";
-                                        }}
-                                      />
-                                    ) : (
-                                      <div className="flex items-center justify-center h-full bg-gradient-to-br from-blue-50 to-blue-100">
-                                        <Gamepad2 className="h-8 w-8 text-blue-300" />
-                                      </div>
-                                    )}
+                            <div className="space-y-4">
+                              <div className="flex flex-wrap gap-2">
+                                {notInstalledGames.map((game) => (
+                                  <div
+                                    key={game.id}
+                                    className="relative group"
+                                    title={game.title}
+                                  >
+                                    <div className="rounded-lg overflow-hidden border border-gray-200 hover:shadow-lg transition-shadow bg-white w-16 h-20 flex items-center justify-center">
+                                      {game.cover_image_url ? (
+                                        <img
+                                          src={game.cover_image_url}
+                                          alt={game.title}
+                                          className="w-full h-full object-contain"
+                                          onError={(e) => {
+                                            e.currentTarget.style.display = "none";
+                                          }}
+                                        />
+                                      ) : (
+                                        <div className="flex items-center justify-center h-full bg-gradient-to-br from-blue-50 to-blue-100">
+                                          <Gamepad2 className="h-5 w-5 text-blue-300" />
+                                        </div>
+                                      )}
+                                    </div>
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedNotInstalledGames.includes(
+                                        game.id
+                                      )}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setSelectedNotInstalledGames([
+                                            ...selectedNotInstalledGames,
+                                            game.id,
+                                          ]);
+                                        } else {
+                                          setSelectedNotInstalledGames(
+                                            selectedNotInstalledGames.filter(
+                                              (id) => id !== game.id
+                                            )
+                                          );
+                                        }
+                                      }}
+                                      className="absolute -bottom-2 -right-2 w-4 h-4 rounded border-2 border-blue-600 bg-white cursor-pointer"
+                                    />
                                   </div>
-                                  <div className="p-2">
-                                    <h4 className="text-xs font-semibold text-gray-900 line-clamp-1 mb-1">
-                                      {game.title}
-                                    </h4>
-                                    <button
-                                      onClick={() =>
-                                        handleAssignGame(selectedConsole!, game.id)
-                                      }
-                                      className="w-full px-2 py-1 text-xs rounded font-medium transition-colors bg-blue-100 text-blue-800 hover:bg-blue-200"
-                                    >
-                                      Install
-                                    </button>
-                                  </div>
-                                </div>
-                              ))}
+                                ))}
+                              </div>
+                              <button
+                                onClick={async () => {
+                                  if (selectedNotInstalledGames.length === 0) {
+                                    Swal.fire(
+                                      "Info",
+                                      "Pilih game yang ingin diinstall",
+                                      "info"
+                                    );
+                                    return;
+                                  }
+                                  await handleBulkAssignGames(
+                                    selectedConsole!,
+                                    selectedNotInstalledGames,
+                                    'install'
+                                  );
+                                  setSelectedNotInstalledGames([]);
+                                }}
+                                disabled={selectedNotInstalledGames.length === 0}
+                                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                              >
+                                Install ({selectedNotInstalledGames.length})
+                              </button>
                             </div>
                           )}
                         </div>
@@ -1268,46 +1332,76 @@ const Games: React.FC = () => {
                               Belum ada game yang diinstall
                             </p>
                           ) : (
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                              {installedGamesList.map((game) => (
-                                <div
-                                  key={game.id}
-                                  className="rounded-lg overflow-hidden border border-gray-200 hover:shadow-lg transition-shadow group bg-white"
-                                >
-                                  <div className="relative bg-gray-100 aspect-[2/3] flex items-center justify-center overflow-hidden">
-                                    {game.cover_image_url ? (
-                                      <img
-                                        src={game.cover_image_url}
-                                        alt={game.title}
-                                        className="w-full h-full object-contain"
-                                        onError={(e) => {
-                                          e.currentTarget.style.display = "none";
-                                        }}
-                                      />
-                                    ) : (
-                                      <div className="flex items-center justify-center h-full bg-gradient-to-br from-green-50 to-green-100">
-                                        <Gamepad2 className="h-8 w-8 text-green-300" />
-                                      </div>
-                                    )}
-                                    <div className="absolute top-2 right-2 bg-green-600 text-white rounded-full p-1">
-                                      <Check className="h-4 w-4" />
+                            <div className="space-y-4">
+                              <div className="flex flex-wrap gap-2">
+                                {installedGamesList.map((game) => (
+                                  <div
+                                    key={game.id}
+                                    className="relative group"
+                                    title={game.title}
+                                  >
+                                    <div className="rounded-lg overflow-hidden border border-gray-200 hover:shadow-lg transition-shadow bg-white w-16 h-20 flex items-center justify-center">
+                                      {game.cover_image_url ? (
+                                        <img
+                                          src={game.cover_image_url}
+                                          alt={game.title}
+                                          className="w-full h-full object-contain"
+                                          onError={(e) => {
+                                            e.currentTarget.style.display = "none";
+                                          }}
+                                        />
+                                      ) : (
+                                        <div className="flex items-center justify-center h-full bg-gradient-to-br from-green-50 to-green-100">
+                                          <Gamepad2 className="h-5 w-5 text-green-300" />
+                                        </div>
+                                      )}
                                     </div>
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedInstalledGames.includes(
+                                        game.id
+                                      )}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setSelectedInstalledGames([
+                                            ...selectedInstalledGames,
+                                            game.id,
+                                          ]);
+                                        } else {
+                                          setSelectedInstalledGames(
+                                            selectedInstalledGames.filter(
+                                              (id) => id !== game.id
+                                            )
+                                          );
+                                        }
+                                      }}
+                                      className="absolute -bottom-2 -right-2 w-4 h-4 rounded border-2 border-green-600 bg-white cursor-pointer"
+                                    />
                                   </div>
-                                  <div className="p-2">
-                                    <h4 className="text-xs font-semibold text-gray-900 line-clamp-1 mb-1">
-                                      {game.title}
-                                    </h4>
-                                    <button
-                                      onClick={() =>
-                                        handleAssignGame(selectedConsole!, game.id)
-                                      }
-                                      className="w-full px-2 py-1 text-xs rounded font-medium transition-colors bg-green-100 text-green-800 hover:bg-green-200"
-                                    >
-                                      Uninstall
-                                    </button>
-                                  </div>
-                                </div>
-                              ))}
+                                ))}
+                              </div>
+                              <button
+                                onClick={async () => {
+                                  if (selectedInstalledGames.length === 0) {
+                                    Swal.fire(
+                                      "Info",
+                                      "Pilih game yang ingin dihapus",
+                                      "info"
+                                    );
+                                    return;
+                                  }
+                                  await handleBulkAssignGames(
+                                    selectedConsole!,
+                                    selectedInstalledGames,
+                                    'uninstall'
+                                  );
+                                  setSelectedInstalledGames([]);
+                                }}
+                                disabled={selectedInstalledGames.length === 0}
+                                className="w-full px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                              >
+                                Uninstall ({selectedInstalledGames.length})
+                              </button>
                             </div>
                           )}
                         </div>
