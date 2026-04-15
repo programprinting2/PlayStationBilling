@@ -1125,6 +1125,7 @@ const Bookkeeping: React.FC = () => {
       if (
         activeView !== "laporan_kasir" &&
         activeView !== "rekap_kasir" &&
+        activeView !== "history_discount" &&
         jurnalSubTab !== "setoran"
       )
         return;
@@ -2852,6 +2853,9 @@ const Bookkeeping: React.FC = () => {
         const totalTransactions = discountTransactions.length;
         const getCashierName = (tx: any) => {
           if (tx?.cashier_name) return tx.cashier_name as string;
+          if (tx?.operator_name) return tx.operator_name as string;
+          if (tx?.created_by_name) return tx.created_by_name as string;
+          
           if (tx?.cashier_id) {
             const sess = sessions.find((s: any) => String(s.cashier_id) === String(tx.cashier_id));
             if (sess?.cashier_name) return sess.cashier_name as string;
@@ -2913,6 +2917,7 @@ const Bookkeeping: React.FC = () => {
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kasir</th>
                         <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Subtotal</th>
                         <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Diskon</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Alasan</th>
                         <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
                       </tr>
                     </thead>
@@ -2950,6 +2955,9 @@ const Bookkeeping: React.FC = () => {
                                 <span className="ml-1 text-xs text-gray-400">({discountLabel})</span>
                               )}
                             </td>
+                            <td className="px-6 py-4 text-sm text-gray-600">
+                              {t.details?.discount?.reason || "-"}
+                            </td>
                             <td className="px-6 py-4 text-sm font-semibold text-gray-900 text-right">Rp {Math.round(total).toLocaleString("id-ID")}</td>
                           </tr>
                         );
@@ -2957,7 +2965,7 @@ const Bookkeeping: React.FC = () => {
                     </tbody>
                     <tfoot className="bg-gray-50 border-t-2 border-gray-200">
                       <tr>
-                        <td colSpan={4} className="px-6 py-3 text-sm font-semibold text-gray-700">Total ({totalTransactions} transaksi)</td>
+                        <td colSpan={5} className="px-6 py-3 text-sm font-semibold text-gray-700">Total ({totalTransactions} transaksi)</td>
                         <td className="px-6 py-3 text-sm font-semibold text-gray-700 text-right">
                           Rp {Math.round(discountTransactions.reduce((s, t) => s + Number(t.amount || 0) + Number(t.details?.discount?.amount || 0), 0)).toLocaleString("id-ID")}
                         </td>

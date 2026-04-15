@@ -39,10 +39,11 @@ const UserManagement = () => {
   const { user: currentUser } = useAuth();
 
   if (!currentUser) {
-    return Swal.fire({
+    Swal.fire({
       icon: "error",
       title: "Anda harus login untuk menambah user!",
     });
+    return null;
   }
 
   // Fetch all data from Supabase on mount
@@ -1274,7 +1275,8 @@ const EditRoleModal: React.FC<EditRoleModalProps> = ({
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name) {
-      return Swal.fire({ icon: "error", title: "Name wajib diisi" });
+      Swal.fire({ icon: "error", title: "Name wajib diisi" });
+      return;
     }
     if (!currentUser) {
       return Swal.fire({
@@ -1410,7 +1412,10 @@ const AddRoleModal: React.FC<AddRoleModalProps> = ({ onClose, onCreated }) => {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name) return Swal.fire({ icon: "error", title: "Name wajib diisi" });
+    if (!name) {
+      Swal.fire({ icon: "error", title: "Name wajib diisi" });
+      return;
+    }
     if (!currentUser) {
       return Swal.fire({
         icon: "error",
