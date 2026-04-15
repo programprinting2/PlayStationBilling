@@ -53,7 +53,8 @@ const Games: React.FC = () => {
   // Available options
   const platformOptions = [
     { id: "ET006", label: "Playstation 3" },
-    { id: "ET001", label: "PlayStation 4" },
+    { id: "ET001", label: "PlayStation 4 Pro" },
+    { id: "ET003", label: "PlayStation 4 Slim" },
     { id: "ET002", label: "PlayStation 5" },
   ];
 
@@ -268,7 +269,8 @@ const Games: React.FC = () => {
 
   const platformToEquipmentType = {
     ps3: "ET006",
-    ps4: "ET001",
+    ps4_pro: "ET001",
+    ps4_slim: "ET003",
     ps5: "ET002",
   };
 

@@ -476,10 +476,10 @@ const ActiveRentals: React.FC = () => {
     return Array.from(genres).sort();
   }, [catalogGames]);
 
-  // Map platform ID to human readable name if possible, or just use as is
   const platformNames: Record<string, string> = {
     ET006: "PlayStation 3",
-    ET001: "PlayStation 4",
+    ET001: "PlayStation 4 Pro",
+    ET003: "PlayStation 4 Slim",
     ET002: "PlayStation 5",
   };
 
