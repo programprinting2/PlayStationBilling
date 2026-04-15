@@ -19,6 +19,7 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
+  Star,
 } from "lucide-react";
 
 const RFIDCards: React.FC = () => {
@@ -676,7 +677,7 @@ const RFIDCards: React.FC = () => {
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
       {/* Summary Stats */}
-      <div className="mb-8 grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="mb-8 grid grid-cols-1 md:grid-cols-5 gap-6">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-center">
           <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
             <CreditCard className="h-6 w-6 text-blue-600" />
@@ -712,6 +713,18 @@ const RFIDCards: React.FC = () => {
             {cards.filter((c) => c.status === "active").length}
           </h3>
           <p className="text-gray-600 text-sm">Kartu Aktif</p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-center">
+          <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <Star className="h-6 w-6 text-yellow-600" />
+          </div>
+          <h3 className="text-2xl font-bold text-gray-900 mb-1">
+            {cards
+              .filter((c) => !c.is_admin)
+              .reduce((sum, c) => sum + (Number(c.balance_points) || 0), 0)
+              .toLocaleString()}
+          </h3>
+          <p className="text-gray-600 text-sm">Total Points Member</p>
         </div>
       </div>
 
