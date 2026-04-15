@@ -10,6 +10,8 @@ import {
   RefreshCw,
   Loader2,
   Search,
+  Copy,
+  CheckCircle,
 } from "lucide-react";
 import { deleteSaleItem } from "../lib/deleteSaleItem";
 import React, {
@@ -463,6 +465,7 @@ const ActiveRentals: React.FC = () => {
   const [gameSearchGenre, setGameSearchGenre] = useState<string>("all");
   const [gameSearchConsole, setGameSearchConsole] = useState<string>("all");
   const [gameSearchLoading, setGameSearchLoading] = useState(false);
+  const [gameSearchCopySuccess, setGameSearchCopySuccess] = useState(false);
   const availableGenres = useMemo(() => {
     const genres = new Set<string>();
     catalogGames.forEach((game) => {
@@ -499,6 +502,52 @@ const ActiveRentals: React.FC = () => {
       Swal.fire("Error", "Gagal memuat data game", "error");
     } finally {
       setGameSearchLoading(false);
+    }
+  };
+
+  const handleCopyGameSearch = async () => {
+    // Get filtered games
+    const filteredGames = catalogGames.filter(
+      (g) =>
+        g.is_active &&
+        g.title.toLowerCase().includes(gameSearchTerm.toLowerCase()) &&
+        (gameSearchPlatform === "all" || (g.platform && g.platform.includes(gameSearchPlatform))) &&
+        (gameSearchGenre === "all" || (g.genre && g.genre.includes(gameSearchGenre))) &&
+        (gameSearchConsole === "all" || (catalogConsoles.find(c => c.id === gameSearchConsole)?.installed_games?.includes(g.id)))
+    );
+
+    // Get platform name from combo box value
+    const platformName = gameSearchPlatform === "all" 
+      ? "Semua Platform" 
+      : platformNames[gameSearchPlatform] || gameSearchPlatform;
+
+    // Get genre name from combo box value
+    const genreName = gameSearchGenre === "all" 
+      ? "Semua Genre" 
+      : gameSearchGenre;
+
+    // Get console name from combo box value
+    const consoleName = gameSearchConsole === "all"
+      ? "Semua Console"
+      : catalogConsoles.find(c => c.id === gameSearchConsole)?.name || "-";
+
+    // Build formatted text
+    let textToCopy = `Platform : ${platformName}\n`;
+    textToCopy += `Genre    : ${genreName}\n`;
+    textToCopy += `Console  : ${consoleName}\n\n`;
+
+    filteredGames.forEach((game, index) => {
+      textToCopy += `${index + 1}. ${game.title}\n`;
+    });
+
+    // Copy to clipboard
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      setGameSearchCopySuccess(true);
+      setTimeout(() => setGameSearchCopySuccess(false), 2000);
+    } catch (error) {
+      console.error("Error copying to clipboard:", error);
+      Swal.fire("Error", "Gagal copy ke clipboard", "error");
     }
   };
 
@@ -12381,12 +12430,29 @@ const ActiveRentals: React.FC = () => {
                 <Gamepad2 className="h-6 w-6 text-blue-600" />
                 Cari Game di Console
               </h2>
-              <button
-                onClick={() => setShowGameSearchModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="h-6 w-6" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCopyGameSearch}
+                  className={`p-2 rounded-lg transition-all ${
+                    gameSearchCopySuccess
+                      ? "bg-green-100 text-green-600"
+                      : "hover:bg-gray-100 text-gray-600"
+                  }`}
+                  title="Salin daftar game ke clipboard"
+                >
+                  {gameSearchCopySuccess ? (
+                    <CheckCircle className="h-5 w-5" />
+                  ) : (
+                    <Copy className="h-5 w-5" />
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowGameSearchModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
             </div>
             
             <div className="p-6 border-b bg-gray-50">
