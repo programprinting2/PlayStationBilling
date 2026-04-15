@@ -141,7 +141,7 @@ const Bookkeeping: React.FC = () => {
   const [showEditForm, setShowEditForm] = useState(false);
   const [editEntry, setEditEntry] = useState<BookkeepingEntry | null>(null);
   const [activeView, setActiveView] = useState<
-    "jurnal" | "laba_rugi" | "laporan_kasir" | "rekap_kasir" | "rekap_console"
+    "jurnal" | "laba_rugi" | "laporan_kasir" | "rekap_kasir" | "rekap_console" | "history_discount"
   >("jurnal");
   const [activeTab, setActiveTab] = useState<
     "all" | "income" | "expense" | "rental" | "sale" | "voucher" | "rekap"
@@ -866,6 +866,24 @@ const Bookkeeping: React.FC = () => {
         //   end.setHours(23, 59, 59, 999);
         //   query = query.lte("timestamp", end.toISOString());
         // }
+      } else if (activeView === "history_discount") {
+        // Fetch all transactions that have a discount in details
+        if (selectedPeriod !== "all") {
+          const now = new Date();
+          let start: Date | null = null;
+          let end: Date | null = null;
+          switch (selectedPeriod) {
+            case "today": { start = new Date(); start.setHours(0,0,0,0); end = new Date(); end.setHours(23,59,59,999); break; }
+            case "yesterday": { start = new Date(); start.setDate(start.getDate()-1); start.setHours(0,0,0,0); end = new Date(start); end.setHours(23,59,59,999); break; }
+            case "week": { start = new Date(); const dw = start.getDay(); start.setDate(start.getDate() + ((dw===0?-6:1)-dw)); start.setHours(0,0,0,0); end = new Date(); end.setHours(23,59,59,999); break; }
+            case "last_week": { start = new Date(); start.setDate(start.getDate()-7); start.setHours(0,0,0,0); end = new Date(); end.setDate(end.getDate()-1); end.setHours(23,59,59,999); break; }
+            case "month": { start = new Date(now.getFullYear(), now.getMonth(), 1); end = new Date(now.getFullYear(), now.getMonth()+1, 0); end.setHours(23,59,59,999); break; }
+            case "last_month": { start = new Date(now.getFullYear(), now.getMonth()-1, 1); end = new Date(now.getFullYear(), now.getMonth(), 0); end.setHours(23,59,59,999); break; }
+            case "range": { if (startDate) { start = new Date(startDate); start.setHours(0,0,0,0); } if (endDate) { end = new Date(endDate); end.setHours(23,59,59,999); } break; }
+          }
+          if (start) query = query.gte("timestamp", start.toISOString());
+          if (end) query = query.lte("timestamp", end.toISOString());
+        }
       } else if (activeView === "rekap_console") {
         query = query
           .eq("type", "rental")
@@ -1065,7 +1083,8 @@ const Bookkeeping: React.FC = () => {
     if (
       activeView === "laba_rugi" ||
       activeView === "rekap_kasir" ||
-      activeView === "rekap_console"
+      activeView === "rekap_console" ||
+      activeView === "history_discount"
     ) {
       fetchTransaction();
     } else if (activeView === "laporan_kasir") {
@@ -2763,6 +2782,17 @@ const Bookkeeping: React.FC = () => {
               <Gamepad className="h-4 w-4" />
               Console
             </button>
+            <button
+              onClick={() => setActiveView("history_discount")}
+              className={`flex items-center gap-2 py-2 px-4 border-b-2 font-medium text-sm ${
+                activeView === "history_discount"
+                  ? "border-blue-500 text-blue-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              }`}
+            >
+              <Ticket className="h-4 w-4" />
+              History Discount
+            </button>
             {/* <button
               onClick={() => setActiveView("rekap_okupansi")}
               className={`flex items-center gap-2 py-2 px-4 border-b-2 font-medium text-sm ${
@@ -2811,8 +2841,145 @@ const Bookkeeping: React.FC = () => {
         </div>
       )}
 
+      {/* History Discount View */}
+      {activeView === "history_discount" && (() => {
+        const discountTransactions = (transactions as any[]).filter(
+          (t) => t?.details?.discount?.amount && Number(t.details.discount.amount) > 0
+        );
+        const totalDiscountAmount = discountTransactions.reduce(
+          (sum, t) => sum + Number(t.details.discount.amount || 0), 0
+        );
+        const totalTransactions = discountTransactions.length;
+        const getCashierName = (tx: any) => {
+          if (tx?.cashier_name) return tx.cashier_name as string;
+          if (tx?.cashier_id) {
+            const sess = sessions.find((s: any) => String(s.cashier_id) === String(tx.cashier_id));
+            if (sess?.cashier_name) return sess.cashier_name as string;
+          }
+          if (tx?.session_id) {
+            const sess = sessions.find((s: any) => String(s.id) === String(tx.session_id));
+            if (sess?.cashier_name) return sess.cashier_name as string;
+          }
+          return "-";
+        };
+        return (
+          <div className="space-y-4">
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-purple-800">Total Transaksi Diskon</span>
+                  <span className="text-xl font-bold text-purple-600">{totalTransactions}</span>
+                </div>
+              </div>
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-orange-800">Total Diskon Diberikan</span>
+                  <span className="text-xl font-bold text-orange-600">
+                    Rp {Math.round(totalDiscountAmount).toLocaleString("id-ID")}
+                  </span>
+                </div>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-blue-800">Rata-rata Diskon</span>
+                  <span className="text-xl font-bold text-blue-600">
+                    Rp {totalTransactions > 0 ? Math.round(totalDiscountAmount / totalTransactions).toLocaleString("id-ID") : 0}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="p-6 border-b border-gray-200">
+                <h2 className="text-xl font-semibold text-gray-900">History Discount</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  Menampilkan {totalTransactions} transaksi dengan diskon
+                </p>
+              </div>
+              {loading ? (
+                <div className="p-8 text-center text-gray-500">Memuat data...</div>
+              ) : discountTransactions.length === 0 ? (
+                <div className="p-8 text-center text-gray-500">Tidak ada transaksi dengan diskon pada periode ini</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tanggal & Waktu</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Referensi</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipe</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kasir</th>
+                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Subtotal</th>
+                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Diskon</th>
+                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {discountTransactions.map((t: any) => {
+                        const discountAmt = Number(t.details?.discount?.amount || 0);
+                        const total = Number(t.amount || 0);
+                        const subtotal = total + discountAmt;
+                        const discountType = t.details?.discount?.type;
+                        const discountValue = t.details?.discount?.value;
+                        const discountLabel = discountType === "percent"
+                          ? `${discountValue}%`
+                          : discountType === "amount"
+                          ? `Rp ${Number(discountValue || 0).toLocaleString("id-ID")}`
+                          : "";
+                        const typeLabel = t.type === "rental" ? "Rental" : t.type === "sale" ? "Penjualan" : t.type || "-";
+                        return (
+                          <tr key={t.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">
+                              {t.timestamp ? new Date(t.timestamp).toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "-"}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-600 font-mono">{t.reference_id || t.id?.slice(0, 8) || "-"}</td>
+                            <td className="px-6 py-4 text-sm">
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${t.type === "rental" ? "bg-blue-100 text-blue-800" : t.type === "sale" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}`}>
+                                {typeLabel}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-700">{getCashierName(t)}</td>
+                            <td className="px-6 py-4 text-sm text-gray-700 text-right">Rp {Math.round(subtotal).toLocaleString("id-ID")}</td>
+                            <td className="px-6 py-4 text-sm text-right">
+                              <span className="text-red-600 font-medium">
+                                - Rp {Math.round(discountAmt).toLocaleString("id-ID")}
+                              </span>
+                              {discountLabel && (
+                                <span className="ml-1 text-xs text-gray-400">({discountLabel})</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-sm font-semibold text-gray-900 text-right">Rp {Math.round(total).toLocaleString("id-ID")}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot className="bg-gray-50 border-t-2 border-gray-200">
+                      <tr>
+                        <td colSpan={4} className="px-6 py-3 text-sm font-semibold text-gray-700">Total ({totalTransactions} transaksi)</td>
+                        <td className="px-6 py-3 text-sm font-semibold text-gray-700 text-right">
+                          Rp {Math.round(discountTransactions.reduce((s, t) => s + Number(t.amount || 0) + Number(t.details?.discount?.amount || 0), 0)).toLocaleString("id-ID")}
+                        </td>
+                        <td className="px-6 py-3 text-sm font-semibold text-red-600 text-right">
+                          - Rp {Math.round(totalDiscountAmount).toLocaleString("id-ID")}
+                        </td>
+                        <td className="px-6 py-3 text-sm font-semibold text-gray-900 text-right">
+                          Rp {Math.round(discountTransactions.reduce((s, t) => s + Number(t.amount || 0), 0)).toLocaleString("id-ID")}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Transactions List */}
-      {rekapConsoleViewSubTab !== "rekap" &&
+      {activeView !== "history_discount" &&
+        rekapConsoleViewSubTab !== "rekap" &&
         labaRugiSubTab !== "rekap" &&
         transaksiKasirSubTab !== "rekap" &&
         transaksiKasirSubTab !== "rekap_tahunan" &&
