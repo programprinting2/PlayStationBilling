@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Plus,
   Search,
@@ -14,6 +14,8 @@ import {
   ArrowDown,
   Copy,
   XCircle,
+  X,
+  Minus,
 } from "lucide-react";
 import { db, supabase } from "../lib/supabase";
 import Swal from "sweetalert2";
@@ -87,6 +89,14 @@ const Pembelian: React.FC = () => {
   const [stockCategoryFilter, setStockCategoryFilter] = useState("");
   const [selectedStockIds, setSelectedStockIds] = useState<string[]>([]);
   const [showSelectedStockModal, setShowSelectedStockModal] = useState(false);
+  const [showStockReductionForm, setShowStockReductionForm] = useState(false);
+  const [showProductSelectForStockReduction, setShowProductSelectForStockReduction] = useState(false);
+  const [stockReductionProductSearchTerm, setStockReductionProductSearchTerm] = useState("");
+  const [stockReductionForm, setStockReductionForm] = useState({
+    product_id: "",
+    quantity: 1,
+    notes: "",
+  });
   const [showStockCard, setShowStockCard] = useState(false);
   const [stockCardProduct, setStockCardProduct] = useState<any | null>(null);
   const [stockHistory, setStockHistory] = useState<any[]>([]);
@@ -476,6 +486,14 @@ const Pembelian: React.FC = () => {
 
   const filteredSuppliersForModal = suppliers.filter(s => s.name.toLowerCase().includes(supplierSearchTerm.toLowerCase()));
   const filteredProductsForModal = products.filter(p => p.name.toLowerCase().includes(productSearchTerm.toLowerCase()));
+  const filteredProductsForStockReduction = products.filter((p) => {
+    const term = stockReductionProductSearchTerm.trim().toLowerCase();
+    if (!term) return true;
+    const byName = (p.name || "").toLowerCase().includes(term);
+    const byCat = (p.category || "").toLowerCase().includes(term);
+    const byBarcode = (p.barcode || "").toLowerCase().includes(term);
+    return byName || byCat || byBarcode;
+  });
 
   const handleStockSort = (columnKey: string) => {
     if (stockSortBy === columnKey) {
@@ -1298,6 +1316,14 @@ const Pembelian: React.FC = () => {
               <ShoppingCart className="h-4 w-4" />
               Keranjang
             </button>
+            <button
+              type="button"
+              onClick={() => setShowStockReductionForm(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-red-600 text-white font-semibold transition hover:bg-red-700"
+            >
+              <Minus className="h-4 w-4" />
+              Gunakan Stok
+            </button>
           </div>
         </div>
       </div>
@@ -1425,6 +1451,258 @@ const Pembelian: React.FC = () => {
               >
                 Tutup
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showStockReductionForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-gray-900">Kurangi Stok Produk</h2>
+                <button
+                  onClick={() => setShowStockReductionForm(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!stockReductionForm.product_id || stockReductionForm.quantity <= 0) {
+                    Swal.fire("Error", "Pilih produk dan jumlah yang valid", "error");
+                    return;
+                  }
+
+                  try {
+                    await db.products.decreaseStock(
+                      stockReductionForm.product_id,
+                      stockReductionForm.quantity
+                    );
+
+                    const product = products.find((p) => p.id === stockReductionForm.product_id);
+                    await supabase.from("cashier_transactions").insert({
+                      session_id: null,
+                      type: "stock_reduction",
+                      amount: 0,
+                      payment_method: "cash",
+                      details: [
+                        {
+                          product_id: stockReductionForm.product_id,
+                          product_name: product?.name || "Unknown Product",
+                          quantity: stockReductionForm.quantity,
+                        },
+                      ],
+                      description: `${stockReductionForm.notes || "Stok dikurangi manual"}`,
+                      reference_id: `STOCK_REDUCTION-${Date.now()}`,
+                      timestamp: new Date().toISOString(),
+                    });
+
+                    Swal.fire("Berhasil", "Stok berhasil dikurangi", "success");
+                    setShowStockReductionForm(false);
+                    setStockReductionForm({
+                      product_id: "",
+                      quantity: 1,
+                      notes: "",
+                    });
+                    await fetchProducts();
+                  } catch (error) {
+                    console.error("Error reducing stock:", error);
+                    Swal.fire("Error", "Gagal mengurangi stok", "error");
+                  }
+                }}
+                className="space-y-4"
+              >
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Pilih Produk</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowProductSelectForStockReduction(true)}
+                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-left focus:ring-2 focus:ring-red-500 focus:border-transparent hover:bg-gray-50"
+                    >
+                      {stockReductionForm.product_id ? (
+                        (() => {
+                          const selectedProduct = products.find(
+                            (p) => p.id === stockReductionForm.product_id
+                          );
+                          return (
+                            <div>
+                              <div className="font-medium text-gray-900">
+                                {selectedProduct?.name || "Produk tidak ditemukan"}
+                              </div>
+                              <div className="text-xs text-gray-500">Stok: {selectedProduct?.stock || 0}</div>
+                            </div>
+                          );
+                        })()
+                      ) : (
+                        <span className="text-gray-500">Klik untuk pilih produk...</span>
+                      )}
+                    </button>
+                    {stockReductionForm.product_id && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setStockReductionForm({
+                            ...stockReductionForm,
+                            product_id: "",
+                          })
+                        }
+                        className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                        title="Hapus pilihan"
+                      >
+                        <X className="h-4 w-4 text-gray-500" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Jumlah</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={stockReductionForm.quantity}
+                    onChange={(e) =>
+                      setStockReductionForm({
+                        ...stockReductionForm,
+                        quantity: parseInt(e.target.value, 10) || 1,
+                      })
+                    }
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Catatan (Opsional)</label>
+                  <textarea
+                    value={stockReductionForm.notes}
+                    onChange={(e) =>
+                      setStockReductionForm({
+                        ...stockReductionForm,
+                        notes: e.target.value,
+                      })
+                    }
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    rows={3}
+                    placeholder="Tambahkan catatan jika diperlukan..."
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowStockReductionForm(false)}
+                    className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg font-medium transition-colors"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                  >
+                    Kurangi Stok
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showProductSelectForStockReduction && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden flex">
+            <div className="flex-1 p-6 overflow-y-auto">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-semibold text-gray-900">Pilih Produk untuk Pengurangan Stok</h3>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={fetchProducts}
+                    className="text-blue-600 hover:text-blue-800 p-1 rounded"
+                    title="Refresh data produk"
+                  >
+                    <RefreshCw className="h-5 w-5" />
+                  </button>
+                  <button
+                    onClick={() => setShowProductSelectForStockReduction(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <XCircle className="h-6 w-6" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="relative mb-4">
+                <input
+                  type="text"
+                  placeholder="Cari produk berdasarkan nama, kategori, atau barcode..."
+                  value={stockReductionProductSearchTerm}
+                  onChange={(e) => setStockReductionProductSearchTerm(e.target.value)}
+                  className="w-full px-4 py-3 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                />
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Search className="h-5 w-5 text-gray-400" />
+                </div>
+              </div>
+
+              <div className="max-h-[60vh] overflow-y-auto divide-y divide-gray-100">
+                {filteredProductsForStockReduction.filter((p) => p.product_type === "raw_material").length === 0 ? (
+                  <div className="p-6 text-center text-gray-500">
+                    {stockReductionProductSearchTerm
+                      ? "Tidak ada produk bahan baku yang cocok"
+                      : "Belum ada produk bahan baku"}
+                  </div>
+                ) : (
+                  filteredProductsForStockReduction
+                    .filter((p) => p.product_type === "raw_material")
+                    .map((p: any) => (
+                      <button
+                        key={p.id}
+                        onClick={() => {
+                          setStockReductionForm({
+                            ...stockReductionForm,
+                            product_id: p.id,
+                          });
+                          setShowProductSelectForStockReduction(false);
+                          setStockReductionProductSearchTerm("");
+                        }}
+                        className="w-full text-left p-4 hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-medium text-gray-900">{p.name}</div>
+                            <div className="text-xs text-gray-500">
+                              Kategori: {p.category || "-"}
+                              {p.barcode ? ` • Barcode: ${p.barcode}` : ""}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sm text-gray-700">Stok: {p.stock}</div>
+                            <div className="text-xs text-gray-500">
+                              Modal: Rp {Number(p.cost || 0).toLocaleString("id-ID")}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    ))
+                )}
+              </div>
+
+              <div className="border-t border-gray-200 pt-4 mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowProductSelectForStockReduction(false)}
+                  className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Tutup
+                </button>
+              </div>
             </div>
           </div>
         </div>
