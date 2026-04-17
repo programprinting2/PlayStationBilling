@@ -906,6 +906,38 @@ const Pembelian: React.FC = () => {
     return dateMatch && searchMatch;
   });
 
+  const daftarGrandTotal = filteredPurchaseOrdersForDaftar.reduce(
+    (sum, po) => sum + Number(po.total_amount || 0),
+    0,
+  );
+  const rekapTanggalGrandTotal = Object.values(rekapTanggalData).reduce(
+    (sum, day: any) => sum + Number(day?.dateTotal || 0),
+    0,
+  );
+  const rekapPerBarangGrandTotal = Object.values(rekapPerBarangData).reduce(
+    (sum, product: any) => sum + Number(product?.total || 0),
+    0,
+  );
+
+  const purchaseListSummary =
+    purchaseTabView === "daftar"
+      ? {
+          countLabel: "Total Orders",
+          countValue: filteredPurchaseOrdersForDaftar.length,
+          grandTotal: daftarGrandTotal,
+        }
+      : purchaseTabView === "rekapTanggalBarang"
+        ? {
+            countLabel: "Total Tanggal",
+            countValue: Object.keys(rekapTanggalData).length,
+            grandTotal: rekapTanggalGrandTotal,
+          }
+        : {
+            countLabel: "Total Barang",
+            countValue: Object.keys(rekapPerBarangData).length,
+            grandTotal: rekapPerBarangGrandTotal,
+          };
+
   useEffect(() => {
     setHistoryPage(1);
   }, [daftarSearch, daftarPeriod, daftarDateRange.start, daftarDateRange.end]);
@@ -943,7 +975,20 @@ const Pembelian: React.FC = () => {
           </div>
           <div>
             <p className="text-sm text-gray-500 font-medium">Total Orders</p>
-            <h3 className="text-2xl font-bold text-gray-900">{purchaseOrders.length}</h3>
+            <h3 className="text-2xl font-bold text-gray-900">{filteredPurchaseOrdersForDaftar.length}</h3>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+          <div className="p-3 bg-green-100 rounded-lg text-green-600">
+            <Package className="h-6 w-6" />
+          </div>
+          <div>
+            <p className="text-sm text-gray-500 font-medium">Grand Total Laporan</p>
+            <h3 className="text-2xl font-bold text-gray-900">
+              Rp {filteredPurchaseOrdersForDaftar
+                .reduce((sum, po) => sum + Number(po.total_amount || 0), 0)
+                .toLocaleString("id-ID")}
+            </h3>
           </div>
         </div>
       </div>
@@ -972,7 +1017,7 @@ const Pembelian: React.FC = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">PO Number</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total Rp.</th>
                   <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
@@ -1100,6 +1145,29 @@ const Pembelian: React.FC = () => {
         </button>
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+          <div className="p-3 bg-blue-100 rounded-lg text-blue-600">
+            <ShoppingCart className="h-6 w-6" />
+          </div>
+          <div>
+            <p className="text-sm text-gray-500 font-medium">{purchaseListSummary.countLabel}</p>
+            <h3 className="text-2xl font-bold text-gray-900">{purchaseListSummary.countValue}</h3>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+          <div className="p-3 bg-green-100 rounded-lg text-green-600">
+            <Package className="h-6 w-6" />
+          </div>
+          <div>
+            <p className="text-sm text-gray-500 font-medium">Grand Total</p>
+            <h3 className="text-2xl font-bold text-gray-900">
+              Rp {purchaseListSummary.grandTotal.toLocaleString("id-ID")}
+            </h3>
+          </div>
+        </div>
+      </div>
+
       {purchaseTabView === "daftar" && (
         <div className="bg-white rounded-xl shadow-sm border p-4">
           <PurchaseFilters search={daftarSearch} onSearch={setDaftarSearch} period={daftarPeriod} onPeriodChange={setDaftarPeriod} dateRange={daftarDateRange} onDateRangeChange={setDaftarDateRange} />
@@ -1115,31 +1183,89 @@ const Pembelian: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredPurchaseOrdersForDaftar.map(po => (
-                    <tr key={po.id}>
-                      <td className="px-4 py-2">{po.po_number}</td>
-                      <td className="px-4 py-2">{new Date(po.order_date).toLocaleDateString()}</td>
-                      <td className="px-4 py-2">{suppliers.find(s => s.id === po.supplier_id)?.name}</td>
-                      <td className="px-4 py-2 text-right font-medium">Rp {Number(po.total_amount).toLocaleString()}</td>
-                      <td className="px-4 py-2 text-center">
-                        <div className="flex justify-center gap-2">
-                          <button 
-                            onClick={() => handleEditClick(po)} 
-                            className="text-blue-600 hover:bg-blue-50 p-1 rounded"
+                  {filteredPurchaseOrdersForDaftar.map((po) => (
+                    <React.Fragment key={po.id}>
+                      <tr className="hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-2">
+                          <button
+                            onClick={() => openPoDetail(po)}
+                            className="font-medium text-blue-600 hover:text-blue-800 transition-colors flex items-center gap-2"
                           >
-                            <Edit className="h-4 w-4" />
+                            {po.po_number || po.id}
+                            <ChevronRight
+                              className={`h-4 w-4 transform transition-transform ${expandedPoId === po.id ? "rotate-90" : ""}`}
+                            />
                           </button>
-                          <button onClick={async () => {
-                            const res = await Swal.fire({ title: "Hapus?", text: "Stok akan dikurangi!", icon: "warning", showCancelButton: true });
-                            if (res.isConfirmed) {
-                              await db.purchases.delete(po.id);
-                              fetchPurchaseOrders();
-                              Swal.fire("Dihapus", "PO berhasil dihapus", "success");
-                            }
-                          }} className="text-red-600 hover:bg-red-50 p-1 rounded"><Trash2 className="h-4 w-4" /></button>
-                        </div>
-                      </td>
-                    </tr>
+                        </td>
+                        <td className="px-4 py-2">{new Date(po.order_date).toLocaleDateString("id-ID")}</td>
+                        <td className="px-4 py-2">{suppliers.find((s) => s.id === po.supplier_id)?.name || "-"}</td>
+                        <td className="px-4 py-2 text-right font-medium">Rp {Number(po.total_amount).toLocaleString("id-ID")}</td>
+                        <td className="px-4 py-2 text-center">
+                          <div className="flex justify-center gap-2">
+                            <button
+                              onClick={() => handleEditClick(po)}
+                              className="text-blue-600 hover:bg-blue-50 p-1 rounded"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={async () => {
+                                const res = await Swal.fire({
+                                  title: "Hapus?",
+                                  text: "Stok akan dikurangi!",
+                                  icon: "warning",
+                                  showCancelButton: true,
+                                });
+                                if (res.isConfirmed) {
+                                  await db.purchases.delete(po.id);
+                                  fetchPurchaseOrders();
+                                  Swal.fire("Dihapus", "PO berhasil dihapus", "success");
+                                }
+                              }}
+                              className="text-red-600 hover:bg-red-50 p-1 rounded"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {expandedPoId === po.id && poDetail && (
+                        <tr className="bg-gray-50">
+                          <td colSpan={5} className="px-4 py-4">
+                            <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+                              <h4 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
+                                <Package className="h-4 w-4 text-blue-500" /> Detail Barang
+                              </h4>
+                              <table className="min-w-full text-sm">
+                                <thead className="text-gray-500 uppercase text-[10px] font-bold tracking-wider">
+                                  <tr className="border-b">
+                                    <th className="text-left py-2">Produk</th>
+                                    <th className="text-right py-2">Qty</th>
+                                    <th className="text-right py-2">Harga</th>
+                                    <th className="text-right py-2">Total</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                  {poDetail.items.map((it: any) => (
+                                    <tr key={it.id}>
+                                      <td className="py-2">{it.product_name}</td>
+                                      <td className="text-right py-2">{it.quantity}</td>
+                                      <td className="text-right py-2">Rp {Number(it.unit_cost).toLocaleString("id-ID")}</td>
+                                      <td className="text-right py-2 font-medium">Rp {Number(it.total).toLocaleString("id-ID")}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                              {poDetail.notes && (
+                                <div className="mt-4 p-3 bg-slate-50 rounded-lg text-xs text-slate-600">
+                                  <span className="font-bold">Catatan:</span> {poDetail.notes}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   ))}
                 </tbody>
              </table>
@@ -1211,6 +1337,9 @@ const Pembelian: React.FC = () => {
               ) : (
                 Object.entries(rekapPerBarangData).map(([id, p]: [string, any]) => {
                   const isOpen = expandedRekapPerBarang === id;
+                  const rekapProduct =
+                    products.find((prod) => String(prod.id) === String(id)) ||
+                    products.find((prod) => (prod.name || "") === (p.name || ""));
                   const rows = Object.entries(p.dates).flatMap(([date, dateGroup]: [string, any]) =>
                     (dateGroup.pos || []).map((row: any, index: number) => ({ ...row, date, index }))
                   );
@@ -1227,6 +1356,21 @@ const Pembelian: React.FC = () => {
                           <p className="text-sm text-gray-500">{rows.length} baris pembelian • {p.qty} qty</p>
                         </div>
                         <div className="flex items-center gap-3">
+                          {rekapProduct && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenStockCard(rekapProduct);
+                              }}
+                              title="Kartu Stok"
+                              className="p-1 text-gray-400 hover:text-yellow-600 transition-colors"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+                                <path d="M3 3h18v2H3V3zm2 6h14v2H5V9zm0 6h8v2H5v-2z" />
+                              </svg>
+                            </button>
+                          )}
                           <span className="font-bold text-blue-700">Rp {Number(p.total).toLocaleString()}</span>
                           <ChevronRight className={`h-4 w-4 text-gray-500 transform transition-transform ${isOpen ? 'rotate-90' : ''}`} />
                         </div>
@@ -1708,146 +1852,6 @@ const Pembelian: React.FC = () => {
         </div>
       )}
 
-      {showStockCard && stockCardProduct && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-semibold text-gray-900">Kartu Stok - {stockCardProduct.name}</h3>
-                <button
-                  onClick={() => setShowStockCard(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <XCircle className="h-6 w-6" />
-                </button>
-              </div>
-            </div>
-
-            <div className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="block text-sm text-gray-600">Stok Saat Ini</label>
-                  <div className="mt-1 font-semibold text-gray-900">
-                    {stockCardProduct.stock} {stockCardProduct.unit}
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-600">Min. Stok</label>
-                  <div className="mt-1 text-gray-900">
-                    {stockCardProduct.min_stock} {stockCardProduct.unit}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-6 border-t border-gray-200 bg-white">
-              <h4 className="font-semibold text-gray-900 mb-3">Riwayat Stok</h4>
-              {stockHistoryLoading ? (
-                <div className="text-sm text-gray-500">Memuat riwayat...</div>
-              ) : stockHistoryError ? (
-                <div className="text-sm text-red-500">{stockHistoryError}</div>
-              ) : stockHistory.length === 0 ? (
-                <div className="text-sm text-gray-500">Belum ada riwayat stok.</div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm text-left">
-                    <thead className="text-xs text-gray-500 uppercase">
-                      <tr>
-                        <th className="px-2 py-2">Tanggal</th>
-                        <th className="px-2 py-2">Keluar</th>
-                        <th className="px-2 py-2">Masuk</th>
-                        <th className="px-2 py-2">Saldo</th>
-                        <th className="px-2 py-2">Catatan</th>
-                      </tr>
-                    </thead>
-                    <tbody className="text-gray-700">
-                      {(() => {
-                        const rev = [...stockHistory].reverse();
-                        const totalPages = Math.max(1, Math.ceil(rev.length / STOCK_HISTORY_PAGE_SIZE));
-                        const page = Math.max(0, Math.min(stockHistoryPage, totalPages - 1));
-                        const start = page * STOCK_HISTORY_PAGE_SIZE;
-                        const paged = rev.slice(start, start + STOCK_HISTORY_PAGE_SIZE);
-                        const startBalance =
-                          rev.length > 0 ? rev[0]._balance - (rev[0]._qty || 0) : stockCardProduct.stock || 0;
-
-                        return (
-                          <>
-                            <tr className="border-t">
-                              <td className="px-2 py-2">-</td>
-                              <td className="px-2 py-2">-</td>
-                              <td className="px-2 py-2">-</td>
-                              <td className="px-2 py-2 font-semibold">{startBalance}</td>
-                              <td className="px-2 py-2">Saldo Awal</td>
-                            </tr>
-                            {paged.map((r) => (
-                              <tr
-                                key={r.id || `${r.created_at}-${r._qty}`}
-                                className="border-t"
-                              >
-                                <td className="px-2 py-2">
-                                  {new Date(r.created_at).toLocaleString("id-ID", {
-                                    timeZone: "Asia/Jakarta",
-                                  })}
-                                </td>
-                                <td className="px-2 py-2">{r._qty < 0 ? Math.abs(r._qty) : "-"}</td>
-                                <td className="px-2 py-2">{r._qty > 0 ? r._qty : "-"}</td>
-                                <td className="px-2 py-2">{r._balance}</td>
-                                <td className="px-2 py-2">{r.note || r.notes || "-"}</td>
-                              </tr>
-                            ))}
-                            <tr>
-                              <td colSpan={5} className="px-2 py-3">
-                                <div className="flex items-center justify-between">
-                                  <div className="text-xs text-gray-500">
-                                    Menampilkan {start + 1} - {Math.min(start + STOCK_HISTORY_PAGE_SIZE, rev.length)} dari {rev.length} entri
-                                  </div>
-                                  <div className="flex gap-2">
-                                    <button
-                                      onClick={() => setStockHistoryPage((p) => Math.max(0, p - 1))}
-                                      disabled={page === 0}
-                                      className={`px-3 py-1 rounded-lg border ${
-                                        page === 0
-                                          ? "text-gray-400 border-gray-200"
-                                          : "text-gray-700 border-gray-300 hover:bg-gray-50"
-                                      }`}
-                                    >
-                                      Prev
-                                    </button>
-                                    <button
-                                      onClick={() => setStockHistoryPage((p) => Math.min(totalPages - 1, p + 1))}
-                                      disabled={page >= totalPages - 1}
-                                      className={`px-3 py-1 rounded-lg border ${
-                                        page >= totalPages - 1
-                                          ? "text-gray-400 border-gray-200"
-                                          : "text-gray-700 border-gray-300 hover:bg-gray-50"
-                                      }`}
-                                    >
-                                      Next
-                                    </button>
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          </>
-                        );
-                      })()}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            <div className="p-6 border-t border-gray-200 bg-gray-50 flex justify-end">
-              <button
-                onClick={() => setShowStockCard(false)}
-                className="px-6 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
-              >
-                OK
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 
@@ -2137,6 +2141,147 @@ const Pembelian: React.FC = () => {
                    </div>
                 )}
              </div>
+          </div>
+        </div>
+      )}
+
+      {showStockCard && stockCardProduct && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-semibold text-gray-900">Kartu Stok - {stockCardProduct.name}</h3>
+                <button
+                  onClick={() => setShowStockCard(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XCircle className="h-6 w-6" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm text-gray-600">Stok Saat Ini</label>
+                  <div className="mt-1 font-semibold text-gray-900">
+                    {stockCardProduct.stock} {stockCardProduct.unit}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600">Min. Stok</label>
+                  <div className="mt-1 text-gray-900">
+                    {stockCardProduct.min_stock} {stockCardProduct.unit}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-gray-200 bg-white">
+              <h4 className="font-semibold text-gray-900 mb-3">Riwayat Stok</h4>
+              {stockHistoryLoading ? (
+                <div className="text-sm text-gray-500">Memuat riwayat...</div>
+              ) : stockHistoryError ? (
+                <div className="text-sm text-red-500">{stockHistoryError}</div>
+              ) : stockHistory.length === 0 ? (
+                <div className="text-sm text-gray-500">Belum ada riwayat stok.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="text-xs text-gray-500 uppercase">
+                      <tr>
+                        <th className="px-2 py-2">Tanggal</th>
+                        <th className="px-2 py-2">Keluar</th>
+                        <th className="px-2 py-2">Masuk</th>
+                        <th className="px-2 py-2">Saldo</th>
+                        <th className="px-2 py-2">Catatan</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-gray-700">
+                      {(() => {
+                        const rev = [...stockHistory].reverse();
+                        const totalPages = Math.max(1, Math.ceil(rev.length / STOCK_HISTORY_PAGE_SIZE));
+                        const page = Math.max(0, Math.min(stockHistoryPage, totalPages - 1));
+                        const start = page * STOCK_HISTORY_PAGE_SIZE;
+                        const paged = rev.slice(start, start + STOCK_HISTORY_PAGE_SIZE);
+                        const startBalance =
+                          rev.length > 0 ? rev[0]._balance - (rev[0]._qty || 0) : stockCardProduct.stock || 0;
+
+                        return (
+                          <>
+                            <tr className="border-t">
+                              <td className="px-2 py-2">-</td>
+                              <td className="px-2 py-2">-</td>
+                              <td className="px-2 py-2">-</td>
+                              <td className="px-2 py-2 font-semibold">{startBalance}</td>
+                              <td className="px-2 py-2">Saldo Awal</td>
+                            </tr>
+                            {paged.map((r) => (
+                              <tr
+                                key={r.id || `${r.created_at}-${r._qty}`}
+                                className="border-t"
+                              >
+                                <td className="px-2 py-2">
+                                  {new Date(r.created_at).toLocaleString("id-ID", {
+                                    timeZone: "Asia/Jakarta",
+                                  })}
+                                </td>
+                                <td className="px-2 py-2">{r._qty < 0 ? Math.abs(r._qty) : "-"}</td>
+                                <td className="px-2 py-2">{r._qty > 0 ? r._qty : "-"}</td>
+                                <td className="px-2 py-2">{r._balance}</td>
+                                <td className="px-2 py-2">{r.note || r.notes || "-"}</td>
+                              </tr>
+                            ))}
+                            <tr>
+                              <td colSpan={5} className="px-2 py-3">
+                                <div className="flex items-center justify-between">
+                                  <div className="text-xs text-gray-500">
+                                    Menampilkan {start + 1} - {Math.min(start + STOCK_HISTORY_PAGE_SIZE, rev.length)} dari {rev.length} entri
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={() => setStockHistoryPage((p) => Math.max(0, p - 1))}
+                                      disabled={page === 0}
+                                      className={`px-3 py-1 rounded-lg border ${
+                                        page === 0
+                                          ? "text-gray-400 border-gray-200"
+                                          : "text-gray-700 border-gray-300 hover:bg-gray-50"
+                                      }`}
+                                    >
+                                      Prev
+                                    </button>
+                                    <button
+                                      onClick={() => setStockHistoryPage((p) => Math.min(totalPages - 1, p + 1))}
+                                      disabled={page >= totalPages - 1}
+                                      className={`px-3 py-1 rounded-lg border ${
+                                        page >= totalPages - 1
+                                          ? "text-gray-400 border-gray-200"
+                                          : "text-gray-700 border-gray-300 hover:bg-gray-50"
+                                      }`}
+                                    >
+                                      Next
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          </>
+                        );
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t border-gray-200 bg-gray-50 flex justify-end">
+              <button
+                onClick={() => setShowStockCard(false)}
+                className="px-6 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
+              >
+                OK
+              </button>
+            </div>
           </div>
         </div>
       )}
