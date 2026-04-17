@@ -1605,7 +1605,11 @@ const Pembelian: React.FC = () => {
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4">
             <div className="p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold text-gray-900">Kurangi Stok Produk</h2>
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900">Kurangi Stok Produk</h2>
+                  <p className="text-xs text-gray-500">(bahan baku)</p>
+                </div>
+    
                 <button
                   onClick={() => setShowStockReductionForm(false)}
                   className="text-gray-400 hover:text-gray-600"
@@ -1764,7 +1768,10 @@ const Pembelian: React.FC = () => {
           <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden flex">
             <div className="flex-1 p-6 overflow-y-auto">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-semibold text-gray-900">Pilih Produk untuk Pengurangan Stok</h3>
+                <div>
+                  <h3 className="text-xl font-semibold text-gray-900">Pilih Produk untuk Pengurangan Stok</h3>
+                  <p className="text-xs text-gray-500">(bahan baku)</p>
+                </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={fetchProducts}
