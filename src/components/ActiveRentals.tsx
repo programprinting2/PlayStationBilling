@@ -811,6 +811,7 @@ export const ActiveRentals: React.FC = () => {
   const [selectedVoucherId, setSelectedVoucherId] = useState("");
   const [selling, setSelling] = useState(false);
   const [voucherQuantity, setVoucherQuantity] = useState<number>(1);
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "qris" | "card">("cash");
 
   const [showAddTimeModal, setShowAddTimeModal] =
     useState<AddTimeModalState>(null);
@@ -6010,6 +6011,7 @@ export const ActiveRentals: React.FC = () => {
                     setScannedCardUID("");
                     setScannedCardData(null);
                     setVoucherQuantity(1);
+                    setPaymentMethod("cash");
                   }}
                   className="flex-1 px-4 py-2 border border-gray-300 hover:border-gray-400 text-gray-700 rounded-lg font-medium transition-colors"
                 >
@@ -7033,6 +7035,10 @@ export const ActiveRentals: React.FC = () => {
                       (v.voucher_code || "").toLowerCase().includes(q)
                     );
                   })
+                  .sort(
+                    (a: any, b: any) =>
+                      Number(a.voucher_price || 0) - Number(b.voucher_price || 0),
+                  )
                   .map((v: any) => (
                     <button
                       key={v.id}
@@ -7051,7 +7057,7 @@ export const ActiveRentals: React.FC = () => {
                           {v.name}
                         </div>
                         <div className="text-sm text-gray-600">
-                          {v.voucher_code} â€¢ {v.total_points} points
+                          {v.voucher_code} = {v.total_points.toLocaleString("id-ID")} points
                         </div>
                       </div>
                       <div className="text-sm font-semibold text-green-600">
@@ -11509,7 +11515,7 @@ const VoucherPaymentModal = ({
               <div className="flex justify-between">
                 <span>Points:</span>
                 <span className="font-medium">
-                  {voucher?.total_points} Ã— {quantity}
+                  {voucher?.total_points} x {quantity}
                 </span>
               </div>
               <div className="border-t border-blue-200 mt-2 pt-2">
