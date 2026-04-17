@@ -21,8 +21,9 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { db } from "../lib/supabase";
+import { db, supabase } from "../lib/supabase";
 import paketService from '../lib/paketService';
+import PurchaseFilters from "./PurchaseFilters";
 import Swal from "sweetalert2";
 
 type CashierDetailItem = {
@@ -58,6 +59,47 @@ const parseDetails = (raw: unknown): CashierDetails => {
   }
 };
 
+const extractVoucherCode = (details: any, firstItem: any): string => {
+  const directCode =
+    details?.voucher_code ??
+    details?.voucherCode ??
+    details?.voucher?.voucher_code ??
+    details?.voucher?.voucherCode;
+
+  if (directCode) return String(directCode);
+
+  const itemCode =
+    firstItem?.voucher_code ??
+    firstItem?.voucherCode ??
+    firstItem?.code;
+
+  if (itemCode) return String(itemCode);
+
+  const title = String(firstItem?.title ?? "");
+  const titleMatch = title.match(/voucher\s+([A-Za-z0-9-]+)/i);
+  if (titleMatch?.[1]) return titleMatch[1];
+
+  const desc = String(firstItem?.description ?? "");
+  if (desc.includes(":")) {
+    const fromDesc = desc.split(":")[1]?.trim();
+    if (fromDesc) return fromDesc;
+  }
+
+  return "-";
+};
+
+const extractCardUid = (details: any, firstItem: any): string => {
+  const uid =
+    details?.card_uid ??
+    details?.cardUid ??
+    firstItem?.card_uid ??
+    firstItem?.cardUid ??
+    firstItem?.uid;
+
+  if (uid) return String(uid).trim();
+  return "-";
+};
+
 const VoucherManagement: React.FC = () => {
   const [activeTab, setActiveTab] = useState<
     "master-paket" | "vouchers" | "purchase-history"
@@ -72,6 +114,11 @@ const VoucherManagement: React.FC = () => {
   const [editingVoucher, setEditingVoucher] = useState<any>(null);
 
   const [voucherPurchases, setVoucherPurchases] = useState<any[]>([]);
+  const [rfidAliasByUid, setRfidAliasByUid] = useState<Record<string, string>>({});
+  const [purchaseHistorySearch, setPurchaseHistorySearch] = useState("");
+  const [purchaseHistoryPeriod, setPurchaseHistoryPeriod] = useState<string>("week");
+  const [purchaseHistoryDateRange, setPurchaseHistoryDateRange] = useState({ start: "", end: "" });
+  const [expandedPurchaseHistoryDate, setExpandedPurchaseHistoryDate] = useState<string | null>(null);
   const [newVoucher, setNewVoucher] = useState({
     name: "",
     description: "",
@@ -311,6 +358,8 @@ const VoucherManagement: React.FC = () => {
           durationHours: r.durationHours || 0,
           durationMinutes: r.durationMinutes || 0,
           pricePerHour: r.hargaNormal ?? r.packagePrice ?? 0,
+          hargaNormal: r.hargaNormal ?? 0,
+          packagePrice: r.packagePrice ?? 0,
           discountAmount: r.discountAmount ?? 0,
         }));
         setPakets(mapped as Paket[]);
@@ -334,6 +383,8 @@ const VoucherManagement: React.FC = () => {
         durationHours: r.durationHours || 0,
         durationMinutes: r.durationMinutes || 0,
         pricePerHour: r.hargaNormal ?? r.packagePrice ?? 0,
+        hargaNormal: r.hargaNormal ?? 0,
+        packagePrice: r.packagePrice ?? 0,
         discountAmount: r.discountAmount ?? 0,
       }));
       setPakets(mapped as Paket[]);
@@ -386,11 +437,22 @@ const VoucherManagement: React.FC = () => {
         // voucher_usages tidak digunakan pada skema baru
         setVoucherUsages([]);
 
+        const { data: rfidRows } = await supabase
+          .from("rfid_cards")
+          .select("uid, alias");
+        const aliasMap = (rfidRows || []).reduce((acc: Record<string, string>, row: any) => {
+          const key = String(row?.uid || "").trim().toLowerCase();
+          if (key) acc[key] = row?.alias || "-";
+          return acc;
+        }, {});
+        setRfidAliasByUid(aliasMap);
+
         const cs = await db.customers.getAll();
         setCustomers(cs || []);
       } catch {
         setVouchers([]);
         setVoucherUsages([]);
+        setRfidAliasByUid({});
         setCustomers([]);
       }
     };
@@ -422,6 +484,116 @@ const VoucherManagement: React.FC = () => {
       selectedStatus === "all" || voucher.status === selectedStatus;
     return matchesSearch && matchesStatus;
   });
+
+  const filteredVoucherPurchases = voucherPurchases.filter((trx) => {
+    let start: Date | null = null;
+    let end: Date | null = null;
+    const now = new Date();
+
+    switch (purchaseHistoryPeriod) {
+      case "today": {
+        start = new Date();
+        start.setHours(0, 0, 0, 0);
+        end = new Date();
+        end.setHours(23, 59, 59, 999);
+        break;
+      }
+      case "yesterday": {
+        start = new Date();
+        start.setDate(start.getDate() - 1);
+        start.setHours(0, 0, 0, 0);
+        end = new Date(start);
+        end.setHours(23, 59, 59, 999);
+        break;
+      }
+      case "week": {
+        start = new Date();
+        const day = start.getDay();
+        const diff = (day === 0 ? -6 : 1) - day;
+        start.setDate(start.getDate() + diff);
+        start.setHours(0, 0, 0, 0);
+        end = new Date();
+        end.setHours(23, 59, 59, 999);
+        break;
+      }
+      case "month": {
+        start = new Date(now.getFullYear(), now.getMonth(), 1);
+        end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        end.setHours(23, 59, 59, 999);
+        break;
+      }
+      case "range": {
+        if (purchaseHistoryDateRange.start) {
+          start = new Date(purchaseHistoryDateRange.start);
+          start.setHours(0, 0, 0, 0);
+        }
+        if (purchaseHistoryDateRange.end) {
+          end = new Date(purchaseHistoryDateRange.end);
+          end.setHours(23, 59, 59, 999);
+        }
+        break;
+      }
+    }
+
+    const trxDate = trx.timestamp ? new Date(trx.timestamp) : null;
+    let dateMatch = true;
+    if (trxDate) {
+      if (start && trxDate < start) dateMatch = false;
+      if (end && trxDate > end) dateMatch = false;
+    }
+
+    let searchMatch = true;
+    if (purchaseHistorySearch) {
+      const search = purchaseHistorySearch.toLowerCase();
+      const details = parseDetails(trx.details);
+      const firstItem = details.items?.[0] ?? {};
+      const voucherCode = extractVoucherCode(details, firstItem);
+      const cardUid = extractCardUid(details, firstItem);
+      const cardAlias = cardUid !== "-" ? rfidAliasByUid[cardUid.toLowerCase()] ?? "" : "";
+      const customerName = details.customer?.name ?? "";
+      const customerPhone = details.customer?.phone ?? "";
+      const voucherName = firstItem.name ?? "";
+      const paymentMethod = trx.payment_method ?? details.payment?.method ?? "";
+
+      searchMatch = [voucherCode, cardUid, cardAlias, customerName, customerPhone, voucherName, paymentMethod]
+        .some((value) => String(value).toLowerCase().includes(search));
+    }
+
+    return dateMatch && searchMatch;
+  });
+
+  const purchaseHistorySummary = {
+    voucherCount: filteredVoucherPurchases.length,
+    totalSales: filteredVoucherPurchases.reduce(
+      (sum, trx) => sum + Number(trx.amount ?? 0),
+      0,
+    ),
+  };
+
+  const purchaseHistoryGroupedByDate = filteredVoucherPurchases.reduce(
+    (groups, trx) => {
+      const dateKey = trx.timestamp ? trx.timestamp.slice(0, 10) : "unknown";
+      if (!groups[dateKey]) {
+        groups[dateKey] = {
+          subtotal: 0,
+          transactions: [],
+        };
+      }
+
+      groups[dateKey].subtotal += Number(trx.amount ?? 0);
+      groups[dateKey].transactions.push(trx);
+      return groups;
+    },
+    {} as Record<string, { subtotal: number; transactions: any[] }>,
+  );
+
+  const purchaseHistoryDateEntries = Object.entries(purchaseHistoryGroupedByDate).sort(
+    ([dateA], [dateB]) => {
+      if (dateA === "unknown") return 1;
+      if (dateB === "unknown") return -1;
+      return new Date(dateB).getTime() - new Date(dateA).getTime();
+    },
+  );
 
   // Filter for active vouchers
   const activeVouchers = filteredVouchers.filter((v) => v.status === "active");
@@ -1154,81 +1326,149 @@ const VoucherManagement: React.FC = () => {
           Daftar transaksi penjualan voucher ke customer
         </p>
       </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+          <div className="p-3 bg-blue-100 rounded-lg text-blue-600">
+            <Ticket className="h-6 w-6" />
+          </div>
+          <div>
+            <p className="text-sm text-gray-500 font-medium">Jumlah Voucher</p>
+            <h3 className="text-2xl font-bold text-gray-900">{purchaseHistorySummary.voucherCount}</h3>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+          <div className="p-3 bg-green-100 rounded-lg text-green-600">
+            <DollarSign className="h-6 w-6" />
+          </div>
+          <div>
+            <p className="text-sm text-gray-500 font-medium">Total Penjualan</p>
+            <h3 className="text-2xl font-bold text-gray-900">
+              Rp {purchaseHistorySummary.totalSales.toLocaleString("id-ID")}
+            </h3>
+          </div>
+        </div>
+      </div>
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Tanggal
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Customer
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Kode Voucher
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Nama Voucher
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Total Bayar
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Metode
-                </th>
-                {/* <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Admin
-                </th> */}
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {voucherPurchases.map((trx) => {
-                const d = parseDetails(trx.details);
-                const items = d.items ?? [];
-                const firstItem = items[0] ?? {};
+        <div className="p-4 border-b border-gray-100 bg-gray-50">
+          <PurchaseFilters
+            search={purchaseHistorySearch}
+            onSearch={setPurchaseHistorySearch}
+            period={purchaseHistoryPeriod}
+            onPeriodChange={setPurchaseHistoryPeriod}
+            dateRange={purchaseHistoryDateRange}
+            onDateRangeChange={setPurchaseHistoryDateRange}
+            placeholder="Cari UID, alias, kode voucher, nama voucher, atau metode bayar..."
+          />
+        </div>
+        <div className="p-4">
+          {purchaseHistoryDateEntries.length === 0 ? (
+            <div className="py-10 text-center text-sm text-gray-500">
+              Tidak ada transaksi yang sesuai dengan filter.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {purchaseHistoryDateEntries.map(([date, group]) => {
+                const isOpen = expandedPurchaseHistoryDate === date;
+
                 return (
-                  <tr key={trx.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {trx.timestamp
-                        ? new Date(trx.timestamp).toLocaleString("id-ID")
-                        : "-"}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
-                        {d.customer?.name ?? "-"}
+                  <div key={date} className="border rounded-xl overflow-hidden bg-white shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedPurchaseHistoryDate(isOpen ? null : date)}
+                      className="w-full flex items-center justify-between gap-4 p-4 bg-slate-50 hover:bg-slate-100 transition"
+                    >
+                      <div>
+                        <h4 className="font-bold text-gray-900">
+                          {date === "unknown"
+                            ? "Tanggal Tidak Diketahui"
+                            : new Date(date).toLocaleDateString("id-ID", {
+                                weekday: "long",
+                                year: "numeric",
+                                month: "long",
+                                day: "numeric",
+                              })}
+                        </h4>
+                        <p className="text-sm text-gray-500">
+                          {group.transactions.length} voucher
+                        </p>
                       </div>
-                      <div className="text-sm text-gray-500">
-                        {d.customer?.phone ?? ""}
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <p className="text-xs font-medium text-gray-500 uppercase">Sub Total</p>
+                          <span className="font-bold text-blue-700">
+                            Rp {group.subtotal.toLocaleString("id-ID")}
+                          </span>
+                        </div>
+                        <ChevronDown
+                          className={`h-4 w-4 text-gray-500 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                        />
                       </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {d.voucher?.voucher_code ??
-                        (firstItem.description?.includes(":")
-                          ? firstItem.description.split(":")[1]?.trim()
-                          : "-")}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {firstItem.name ?? "-"}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      Rp {Number(trx.amount ?? 0).toLocaleString("id-ID")}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {(
-                        trx.payment_method ??
-                        d.payment?.method ??
-                        "-"
-                      ).toUpperCase()}
-                    </td>
-                    {/* <td className="px-6 py-4 whitespace-nowrap">
-                      {trx.cashier_id ?? "-"}
-                    </td> */}
-                  </tr>
+                    </button>
+                    {isOpen && (
+                      <div className="px-4 pb-4 pt-2 overflow-x-auto">
+                        <table className="min-w-full text-sm">
+                          <thead>
+                            <tr className="text-gray-500 border-b">
+                              <th className="text-left py-2">Waktu</th>
+                              <th className="text-left py-2">UID & Alias</th>
+                              <th className="text-left py-2">Kode Voucher</th>
+                              <th className="text-left py-2">Nama Voucher</th>
+                              <th className="text-left py-2">Metode</th>
+                              <th className="text-right py-2">Total Bayar</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {group.transactions.map((trx) => {
+                              const d = parseDetails(trx.details);
+                              const items = d.items ?? [];
+                              const firstItem = items[0] ?? {};
+                              const voucherCode = extractVoucherCode(d, firstItem);
+                              const cardUid = extractCardUid(d, firstItem);
+                              const cardAlias =
+                                cardUid !== "-"
+                                  ? rfidAliasByUid[cardUid.toLowerCase()] ?? "-"
+                                  : "-";
+
+                              return (
+                                <tr key={trx.id} className="border-b border-gray-100 last:border-b-0">
+                                  <td className="py-3 pr-4 whitespace-nowrap text-gray-700">
+                                    {trx.timestamp
+                                      ? new Date(trx.timestamp).toLocaleTimeString("id-ID", {
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                        })
+                                      : "-"}
+                                  </td>
+                                  <td className="py-3 pr-4">
+                                    <div className="font-medium text-gray-900">
+                                      {cardUid}
+                                    </div>
+                                    <div className="text-gray-500">
+                                      {cardAlias}
+                                    </div>
+                                  </td>
+                                  <td className="py-3 pr-4 whitespace-nowrap text-gray-700">
+                                    {voucherCode}
+                                  </td>
+                                  <td className="py-3 pr-4 text-gray-700">{firstItem.name ?? "-"}</td>
+                                  <td className="py-3 whitespace-nowrap text-gray-700">
+                                    {(trx.payment_method ?? d.payment?.method ?? "-").toUpperCase()}
+                                  </td>
+                                  <td className="py-3 pr-4 text-right font-medium text-gray-900 whitespace-nowrap">
+                                    Rp {Number(trx.amount ?? 0).toLocaleString("id-ID")}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1691,7 +1931,9 @@ const VoucherManagement: React.FC = () => {
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Kode Paket</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Nama Paket</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Durasi</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Harga / jam</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Harga Normal</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Harga Paket</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Hemat</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                     <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Aksi</th>
                   </tr>
@@ -1720,6 +1962,8 @@ const VoucherManagement: React.FC = () => {
                         </td>
                         <td className="px-4 py-3 text-sm">{p.durationHours} jam {p.durationMinutes} menit</td>
                         <td className="px-4 py-3 text-sm">Rp {Number((p as any).hargaNormal ?? p.pricePerHour ?? 0).toLocaleString('id-ID')}</td>
+                        <td className="px-4 py-3 text-sm">Rp {Number((p as any).packagePrice ?? 0).toLocaleString('id-ID')}</td>
+                        <td className="px-4 py-3 text-sm">Rp {Math.max(0, Number((p as any).hargaNormal ?? p.pricePerHour ?? 0) - Number((p as any).packagePrice ?? 0)).toLocaleString('id-ID')}</td>
                         <td className="px-4 py-3 text-sm">
                           <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${p.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                             {p.status}
@@ -1785,7 +2029,7 @@ const VoucherManagement: React.FC = () => {
                       </tr>
                       {viewPaketData && viewPaketData.id === p.id && (
                         <tr key={`detail-${p.id}`} className="bg-white">
-                          <td colSpan={6} className="px-4 py-4">
+                          <td colSpan={8} className="px-4 py-4">
                             <div className="bg-gray-50 rounded-lg p-4 relative">
                               <button onClick={() => setViewPaketData(null)} className="absolute right-3 top-3 text-gray-400 hover:text-gray-600" aria-label="Tutup detail paket"><XCircle className="h-5 w-5" /></button>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
