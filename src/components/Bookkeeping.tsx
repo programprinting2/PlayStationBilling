@@ -2913,11 +2913,11 @@ const Bookkeeping: React.FC = () => {
                       <tr>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tanggal & Waktu</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Referensi</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Alasan</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipe</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kasir</th>
                         <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Subtotal</th>
                         <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Diskon</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Alasan</th>
                         <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
                       </tr>
                     </thead>
@@ -2940,6 +2940,9 @@ const Bookkeeping: React.FC = () => {
                               {t.timestamp ? new Date(t.timestamp).toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "-"}
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-600 font-mono">{t.reference_id || t.id?.slice(0, 8) || "-"}</td>
+                            <td className="px-6 py-4 text-sm text-gray-600">
+                              {t.details?.discount?.reason || "-"}
+                            </td>
                             <td className="px-6 py-4 text-sm">
                               <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${t.type === "rental" ? "bg-blue-100 text-blue-800" : t.type === "sale" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}`}>
                                 {typeLabel}
@@ -2954,9 +2957,6 @@ const Bookkeeping: React.FC = () => {
                               {discountLabel && (
                                 <span className="ml-1 text-xs text-gray-400">({discountLabel})</span>
                               )}
-                            </td>
-                            <td className="px-6 py-4 text-sm text-gray-600">
-                              {t.details?.discount?.reason || "-"}
                             </td>
                             <td className="px-6 py-4 text-sm font-semibold text-gray-900 text-right">Rp {Math.round(total).toLocaleString("id-ID")}</td>
                           </tr>
