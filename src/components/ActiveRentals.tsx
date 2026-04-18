@@ -10833,7 +10833,19 @@ export const ActiveRentals: React.FC = () => {
                         (gameSearchConsole === "all" || (catalogConsoles.find(c => c.id === gameSearchConsole)?.installed_games?.includes(g.id)))
                     )
                     .map((game) => {
-                      const availableConsoles = catalogConsoles.filter((c) => c.installed_games && c.installed_games.includes(game.id));
+                      const availableConsoles = catalogConsoles
+                        .filter(
+                          (c) => c.installed_games && c.installed_games.includes(game.id),
+                        )
+                        .sort((a, b) =>
+                          a.name.localeCompare(b.name, "id", { numeric: true }),
+                        );
+                      const activeAvailableConsoles = availableConsoles.filter(
+                        (c) => consoles.find((cs) => cs.id === c.id)?.status === "rented",
+                      );
+                      const nonActiveAvailableConsoles = availableConsoles.filter(
+                        (c) => consoles.find((cs) => cs.id === c.id)?.status !== "rented",
+                      );
                       
                       return (
                         <div key={game.id} className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col h-full">
@@ -10851,14 +10863,48 @@ export const ActiveRentals: React.FC = () => {
                             <p className="text-xs text-gray-500 mb-3 line-clamp-1">{game.genre?.join(', ')}</p>
                             
                             <div className="mt-auto pt-3 border-t border-gray-100">
-                              <p className="text-xs font-medium text-gray-700 mb-2">Tersedia di:</p>
+                              <p className="text-xs font-medium text-gray-700 mb-2">
+                                Tersedia di: ({availableConsoles.length} console)
+                              </p>
                               {availableConsoles.length > 0 ? (
-                                <div className="flex flex-wrap gap-1">
-                                  {availableConsoles.map(c => (
-                                    <span key={c.id} className="inline-block px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded border border-blue-200">
-                                      {c.name}
-                                    </span>
-                                  ))}
+                                <div className="space-y-2">
+                                  {activeAvailableConsoles.length > 0 && (
+                                    <div>
+                                      <p className="text-[10px] font-medium text-yellow-700 mb-1">
+                                        Aktif ({activeAvailableConsoles.length})
+                                      </p>
+                                      <div className="flex flex-wrap gap-1">
+                                        {activeAvailableConsoles.map((c) => (
+                                          <span
+                                            key={c.id}
+                                            className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded border bg-yellow-100 text-yellow-700 border-yellow-200"
+                                          >
+                                            <span className="w-1.5 h-1.5 rounded-full bg-yellow-500" />
+                                            {c.name}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {nonActiveAvailableConsoles.length > 0 && (
+                                    <div>
+                                      <p className="text-[10px] font-medium text-blue-700 mb-1">
+                                        Nonaktif ({nonActiveAvailableConsoles.length})
+                                      </p>
+                                      <div className="flex flex-wrap gap-1">
+                                        {nonActiveAvailableConsoles.map((c) => (
+                                          <span
+                                            key={c.id}
+                                            className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded border bg-blue-100 text-blue-700 border-blue-200"
+                                          >
+                                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                                            {c.name}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               ) : (
                                 <span className="text-xs text-red-500 font-medium tracking-tight">Belum diinstall</span>
