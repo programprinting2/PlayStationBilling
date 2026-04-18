@@ -1,4 +1,4 @@
-﻿import {
+import {
   CreditCard,
   RotateCcw,
   Pause,
@@ -2243,7 +2243,7 @@ export const ActiveRentals: React.FC = () => {
         return hourlyRateSnapshot;
       } else {
         const extraMinutes = totalMinutes - 60;
-        return hourlyRateSnapshot + extraMinutes * perMinuteRateSnapshot;
+        return hourlyRateSnapshot + Math.ceil((extraMinutes * hourlyRateSnapshot) / 60);
       }
     }
 
@@ -2252,8 +2252,7 @@ export const ActiveRentals: React.FC = () => {
       return hourlyRate;
     } else {
       const extraMinutes = totalMinutes - 60;
-      const perMinuteRate = hourlyRate / 60;
-      const total = hourlyRate + Math.ceil(extraMinutes * perMinuteRate);
+      const total = hourlyRate + Math.ceil((extraMinutes * hourlyRate) / 60);
       return Math.ceil(total / 100) * 100;
     }
   };
@@ -2624,14 +2623,14 @@ export const ActiveRentals: React.FC = () => {
 
         let totalPoints = 0;
         if (minimumMinutesMember == 0) {
-          totalPoints = elapsedMinutes * perMinuteRateSnapshot;
+          totalPoints = Math.ceil((elapsedMinutes * hourlyRateSnapshot) / 60);
         } else if (elapsedMinutes <= minimumMinutesMember) {
           totalPoints = hourlyRateSnapshot;
         } else {
           totalPoints =
             hourlyRateSnapshot +
             Math.ceil(
-              (elapsedMinutes - minimumMinutesMember) * perMinuteRateSnapshot,
+              ((elapsedMinutes - minimumMinutesMember) * hourlyRateSnapshot) / 60,
             );
         }
 
@@ -4027,8 +4026,7 @@ export const ActiveRentals: React.FC = () => {
           totalAmount = hourlyRate;
         } else {
           const extraMinutes = totalDurationMinutes! - 60;
-          const perMinuteRate = hourlyRate / 60;
-          totalAmount = hourlyRate + Math.ceil(extraMinutes * perMinuteRate);
+          totalAmount = hourlyRate + Math.ceil((extraMinutes * hourlyRate) / 60);
         }
         paidAmount = totalAmount;
         paymentStatus = "paid";
@@ -4086,7 +4084,7 @@ export const ActiveRentals: React.FC = () => {
           (r) => r.id === latestConsole.rate_profile_id,
         );
         const hourlyRateSnapshot = rpForSnapshot?.hourly_rate || 15000;
-        const perMinuteRateSnapshot = Math.ceil(hourlyRateSnapshot / 60);
+        const perMinuteRateSnapshot = hourlyRateSnapshot / 60;
 
         // Session data untuk member card
         const sessionData = {
@@ -10016,7 +10014,7 @@ export const ActiveRentals: React.FC = () => {
                               const perMinuteRate = hourlyRate / 60;
                               totalAmount =
                                 hourlyRate +
-                                Math.round(extraMinutes * perMinuteRate);
+                                Math.ceil((extraMinutes * hourlyRate) / 60);
                             }
                             return `Rp ${totalAmount.toLocaleString("id-ID")}`;
                           })()}
