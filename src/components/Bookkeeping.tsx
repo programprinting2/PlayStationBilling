@@ -2311,6 +2311,49 @@ const Bookkeeping: React.FC = () => {
         }
       }
 
+      if (transactionToDelete.type === "voucher") {
+        const details = transactionToDelete.details || {};
+        const cardUid = details.card_uid;
+        const pointsToAdd = Number(details.points_added || 0);
+        const amount = Number(transactionToDelete.amount || 0);
+
+        if (cardUid && pointsToAdd > 0) {
+          const { data: currentCardData, error: fetchCardError } = await supabase
+            .from("rfid_cards")
+            .select("balance_points, total_poin_ever, total_uang_ever")
+            .eq("uid", cardUid)
+            .single();
+
+          if (!fetchCardError && currentCardData) {
+            const newBalance = (currentCardData.balance_points || 0) - pointsToAdd;
+            const newTotalPoinEver = (currentCardData.total_poin_ever || 0) - pointsToAdd;
+            const newTotalUangEver = (currentCardData.total_uang_ever || 0) - amount;
+            const newAvgNilaiPoint = newTotalPoinEver > 0 ? newTotalUangEver / newTotalPoinEver : 0;
+
+            const { error: updateCardError } = await supabase
+              .from("rfid_cards")
+              .update({
+                balance_points: Math.max(0, newBalance),
+                total_poin_ever: Math.max(0, newTotalPoinEver),
+                total_uang_ever: Math.max(0, newTotalUangEver),
+                avg_nilai_point: newAvgNilaiPoint,
+              })
+              .eq("uid", cardUid);
+
+            if (!updateCardError) {
+              await supabase.from("card_usage_logs").insert({
+                card_uid: cardUid,
+                action_type: "balance_adjustment",
+                points_amount: -pointsToAdd,
+                balance_before: currentCardData.balance_points,
+                balance_after: Math.max(0, newBalance),
+                notes: `Penghapusan transaksi voucher: ${transactionToDelete.description} (Ref: ${transactionId})`,
+              });
+            }
+          }
+        }
+      }
+
       const { error: deleteError } = await supabase
         .from("cashier_transactions")
         .delete()
