@@ -1171,6 +1171,57 @@ export const storage = {
     } catch (error) {
       console.error('Error deleting game cover:', error);
     }
+  },
+
+  async uploadProductImage(file: File, productId?: string, oldImageUrl?: string): Promise<string> {
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = productId
+        ? `${productId}_thumb.${fileExt}`
+        : `temp_product_${Date.now()}.${fileExt}`;
+
+      const filePath = `product-images/${fileName}`;
+
+      if (oldImageUrl) {
+        await this.deleteProductImage(oldImageUrl);
+      }
+
+      const { error } = await supabase.storage
+        .from('game-images')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (error) throw error;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('game-images')
+        .getPublicUrl(filePath);
+
+      return publicUrl;
+    } catch (error) {
+      console.error('Error uploading product image:', error);
+      throw new Error('Failed to upload product image');
+    }
+  },
+
+  async deleteProductImage(imageUrl: string): Promise<void> {
+    try {
+      if (!imageUrl || imageUrl.startsWith('data:')) return;
+
+      const urlParts = imageUrl.split('/');
+      const fileName = urlParts[urlParts.length - 1];
+      const filePath = `product-images/${fileName}`;
+
+      const { error } = await supabase.storage
+        .from('game-images')
+        .remove([filePath]);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error deleting product image:', error);
+    }
   }
 }
 

@@ -25,7 +25,7 @@ import {
   RefreshCw,
   ChevronRight,
 } from "lucide-react";
-import { db, supabase } from "../lib/supabase"; // Hanya import db
+import { db, storage, supabase } from "../lib/supabase"; // Hanya import db
 import { printPriceList, ProductPriceList } from "../utils/receipt";
 import Swal from "sweetalert2";
 import PurchaseFilters from "./PurchaseFilters";
@@ -66,6 +66,7 @@ const Products: React.FC = () => {
     stock: 0,
     min_stock: 0,
     barcode: "",
+    image_url: "",
     description: "",
     is_active: true,
   });
@@ -663,22 +664,32 @@ const Products: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-100">
-                      {productsArr.map((p: any) => (
+                      {productsArr.map((p: any) => {
+                        const product = p.productId
+                          ? products.find(
+                              (item) => String(item.id) === String(p.productId)
+                            )
+                          : null;
+                        const supplierNames =
+                          Array.from(
+                            new Set(
+                              (p.lines || [])
+                                .map((l: any) => l.supplierName)
+                                .filter(Boolean)
+                            )
+                          ).join(", ") || "-";
+
+                        return (
                         <tr key={String(p.productId ?? p.name)}>
                           <td className="px-4 py-2">
-                            <div className="font-medium">{p.name}</div>
-                            {p.lines && p.lines.length > 0 && (
-                              <div className="text-xs text-gray-500 mt-1">
-                                Supplier:{" "}
-                                {Array.from(
-                                  new Set(
-                                    p.lines
-                                      .map((l: any) => l.supplierName)
-                                      .filter(Boolean)
-                                  )
-                                ).join(", ") || "-"}
-                              </div>
-                            )}
+                            {renderProductIdentity({
+                              product,
+                              name: p.name,
+                              secondaryText:
+                                p.lines && p.lines.length > 0
+                                  ? `Supplier: ${supplierNames}`
+                                  : undefined,
+                            })}
                           </td>
                           <td className="px-4 py-2 text-right font-medium">
                             {p.qty}
@@ -694,7 +705,7 @@ const Products: React.FC = () => {
                             {Number(p.total || 0).toLocaleString("id-ID")}
                           </td>
                         </tr>
-                      ))}
+                      );})}
                     </tbody>
                     <tfoot>
                       {(() => {
@@ -874,22 +885,28 @@ const Products: React.FC = () => {
                 const unitPrice = p.qty
                   ? Math.round((Number(p.total) || 0) / p.qty)
                   : 0;
+                const product = p.productId
+                  ? products.find((item) => String(item.id) === String(p.productId))
+                  : null;
+                const supplierNames =
+                  Array.from(
+                    new Set(
+                      (p.lines || [])
+                        .map((l: any) => l.supplierName)
+                        .filter(Boolean)
+                    )
+                  ).join(", ") || "-";
                 return (
                   <tr key={k}>
                     <td className="px-4 py-2">
-                      <div className="font-medium">{p.name}</div>
-                      {p.lines && p.lines.length > 0 && (
-                        <div className="text-xs text-gray-500 mt-1">
-                          Supplier:{" "}
-                          {Array.from(
-                            new Set(
-                              p.lines
-                                .map((l: any) => l.supplierName)
-                                .filter(Boolean)
-                            )
-                          ).join(", ") || "-"}
-                        </div>
-                      )}
+                      {renderProductIdentity({
+                        product,
+                        name: p.name,
+                        secondaryText:
+                          p.lines && p.lines.length > 0
+                            ? `Supplier: ${supplierNames}`
+                            : undefined,
+                      })}
                     </td>
                     <td className="px-4 py-2 text-right font-medium">
                       {p.qty}
@@ -1431,6 +1448,128 @@ const Products: React.FC = () => {
   // };
 
   const lowStockProducts = products.filter((p) => p.stock <= p.min_stock);
+  const PRODUCT_IMAGE_MAX_SIZE = 2 * 1024 * 1024;
+
+  const getProductImageUrl = (product: any) =>
+    product?.image_url || product?.image || "";
+
+  const getProductSecondaryText = (product: any) => {
+    if (product?.description) return product.description;
+    if (product?.barcode) return `Barcode: ${product.barcode}`;
+    return `${product?.category || "produk"} • ${product?.unit || "pcs"}`;
+  };
+
+  const renderProductThumbnail = (product: any, sizeClass = "h-12 w-12") => {
+    const imageUrl = getProductImageUrl(product);
+    const fallbackLabel = String(product?.name || "P")
+      .trim()
+      .charAt(0)
+      .toUpperCase();
+
+    return (
+      <div
+        className={`${sizeClass} relative flex-shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-slate-100 shadow-sm`}
+      >
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-slate-300">
+          <Package className="h-4 w-4" />
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+            {fallbackLabel}
+          </span>
+        </div>
+        {imageUrl && (
+          <img
+            src={imageUrl}
+            alt={product?.name || "Product image"}
+            className="relative z-10 h-full w-full object-cover"
+            loading="lazy"
+            onError={(e) => {
+              e.currentTarget.style.display = "none";
+            }}
+          />
+        )}
+      </div>
+    );
+  };
+
+  const renderProductIdentity = ({
+    product,
+    name,
+    secondaryText,
+    sizeClass = "h-10 w-10",
+    nameClassName = "font-medium text-gray-900",
+    secondaryClassName = "text-xs text-gray-500",
+  }: {
+    product?: any;
+    name: string;
+    secondaryText?: string;
+    sizeClass?: string;
+    nameClassName?: string;
+    secondaryClassName?: string;
+  }) => (
+    <div className="flex min-w-0 items-center gap-3">
+      {product ? (
+        renderProductThumbnail(product, sizeClass)
+      ) : (
+        <span
+          className={`${sizeClass} flex flex-shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-100 text-xs font-medium text-slate-400`}
+        >
+          -
+        </span>
+      )}
+      <div className="min-w-0">
+        <div className={`${nameClassName} truncate`}>{name}</div>
+        {secondaryText && (
+          <div className={`${secondaryClassName} truncate`}>
+            {secondaryText}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const uploadProductImage = async (file: File, mode: "new" | "edit") => {
+    if (!file.type.startsWith("image/")) {
+      Swal.fire("Error", "File harus berupa gambar", "error");
+      return;
+    }
+
+    if (file.size > PRODUCT_IMAGE_MAX_SIZE) {
+      Swal.fire("Error", "Ukuran gambar maksimal 2MB", "error");
+      return;
+    }
+
+    try {
+      const productId = mode === "edit" ? editProduct?.id : undefined;
+      const oldImageUrl =
+        mode === "edit" ? editProduct?.image_url : newProduct.image_url;
+      const publicUrl = await storage.uploadProductImage(
+        file,
+        productId,
+        oldImageUrl
+      );
+
+      if (mode === "edit") {
+        setEditProduct((prev: any) =>
+          prev
+            ? {
+                ...prev,
+                image_url: publicUrl,
+              }
+            : prev
+        );
+      } else {
+        setNewProduct((prev) => ({
+          ...prev,
+          image_url: publicUrl,
+        }));
+      }
+
+      Swal.fire("Berhasil", "Gambar produk berhasil diupload", "success");
+    } catch (error) {
+      console.error("Upload product image error:", error);
+      Swal.fire("Error", "Gagal mengupload gambar produk", "error");
+    }
+  };
 
   const addItemToPurchase = () => {
     const newItem = {
@@ -1533,6 +1672,7 @@ const Products: React.FC = () => {
         stock: 0,
         min_stock: 0,
         barcode: "",
+        image_url: "",
         description: "",
         is_active: true,
       });
@@ -1605,6 +1745,7 @@ const Products: React.FC = () => {
         stock: editProduct.stock,
         min_stock: editProduct.min_stock,
         barcode: editProduct.barcode,
+        image_url: editProduct.image_url,
         description: editProduct.description,
         is_active: editProduct.is_active,
       });
@@ -1672,6 +1813,9 @@ const Products: React.FC = () => {
     });
     if (result.isConfirmed) {
       try {
+        if (product.image_url) {
+          await storage.deleteProductImage(product.image_url);
+        }
         await db.delete("products", product.id);
         Swal.fire(
           "Terhapus!",
@@ -2612,8 +2756,17 @@ const Products: React.FC = () => {
                               </button>
                             </div>
                           </div>
-                          <h3 className="font-semibold text-gray-900 mb-1">{product.name}</h3>
-                          <p className="text-sm text-gray-600 line-clamp-2">{product.description}</p>
+                          <div className="mt-3 flex items-start gap-3">
+                            {renderProductThumbnail(product, "h-14 w-14")}
+                            <div className="min-w-0 flex-1 pt-0.5">
+                              <h3 className="font-semibold text-gray-900 mb-1 truncate">
+                                {product.name}
+                              </h3>
+                              <p className="text-sm text-gray-600 line-clamp-2 leading-5">
+                                {getProductSecondaryText(product)}
+                              </p>
+                            </div>
+                          </div>
                         </div>
 
                         <div className="p-4">
@@ -2740,8 +2893,17 @@ const Products: React.FC = () => {
                       </button>
                     </div>
                   </div>
-                  <h3 className="font-semibold text-gray-900 mb-1">{product.name}</h3>
-                  <p className="text-sm text-gray-600 line-clamp-2">{product.description}</p>
+                  <div className="mt-3 flex items-start gap-3">
+                    {renderProductThumbnail(product, "h-14 w-14")}
+                    <div className="min-w-0 flex-1 pt-0.5">
+                      <h3 className="font-semibold text-gray-900 mb-1 truncate">
+                        {product.name}
+                      </h3>
+                      <p className="text-sm text-gray-600 line-clamp-2 leading-5">
+                        {getProductSecondaryText(product)}
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="p-4">
@@ -2881,7 +3043,19 @@ const Products: React.FC = () => {
 
                           return (
                             <tr key={product.id}>
-                              <td className="px-4 py-3 font-medium text-gray-900">{product.name}</td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  {renderProductThumbnail(product, "h-11 w-11")}
+                                  <div className="min-w-0">
+                                    <div className="font-medium text-gray-900 truncate">
+                                      {product.name}
+                                    </div>
+                                    <div className="text-xs text-gray-500 truncate mt-0.5 max-w-[220px]">
+                                      {getProductSecondaryText(product)}
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
                               <td className="px-4 py-3">
                                 <span
                                   className={`px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(
@@ -2965,7 +3139,19 @@ const Products: React.FC = () => {
 
                 return (
                   <tr key={product.id}>
-                    <td className="px-4 py-3 font-medium text-gray-900">{product.name}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {renderProductThumbnail(product, "h-11 w-11")}
+                        <div className="min-w-0">
+                          <div className="font-medium text-gray-900 truncate">
+                            {product.name}
+                          </div>
+                          <div className="text-xs text-gray-500 truncate mt-0.5 max-w-[220px]">
+                            {getProductSecondaryText(product)}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
                     <td className="px-4 py-3">
                       <span
                         className={`px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(
@@ -3263,9 +3449,20 @@ const Products: React.FC = () => {
                                 );
                                 productName = prod ? prod.name : "-";
                               }
+                              const product = item.product_id
+                                ? products.find((p) => p.id === item.product_id)
+                                : null;
                               return (
                                 <tr key={item.id || idx}>
-                                  <td className="px-3 py-2">{productName}</td>
+                                  <td className="px-3 py-2">
+                                    {renderProductIdentity({
+                                      product,
+                                      name: productName,
+                                      secondaryText: product
+                                        ? `${product.category || "produk"} • ${product.unit || "pcs"}`
+                                        : undefined,
+                                    })}
+                                  </td>
                                   <td className="px-3 py-2 text-right">
                                     {item.quantity}
                                   </td>
@@ -3627,9 +3824,19 @@ const Products: React.FC = () => {
                                         (it: any) => (
                                           <tr key={it.id}>
                                             <td className="px-4 py-2">
-                                              {it.product_name ||
-                                                it.productName ||
-                                                "Unknown"}
+                                              {renderProductIdentity({
+                                                product: it.product_id
+                                                  ? products.find(
+                                                      (p) =>
+                                                        String(p.id) ===
+                                                        String(it.product_id)
+                                                    )
+                                                  : null,
+                                                name:
+                                                  it.product_name ||
+                                                  it.productName ||
+                                                  "Unknown",
+                                              })}
                                             </td>
                                             <td className="px-4 py-2 text-right">
                                               {Number(
@@ -4120,6 +4327,12 @@ const Products: React.FC = () => {
                         const unit = p.qty
                           ? Math.round((p.total || 0) / p.qty)
                           : 0;
+                        const product = p.productId
+                          ? products.find(
+                              (item) =>
+                                String(item.id) === String(p.productId)
+                            )
+                          : null;
                         return (
                           <React.Fragment key={productKey}>
                             <tr>
@@ -4139,10 +4352,13 @@ const Products: React.FC = () => {
                                     compoundKey
                                   )}
                                 >
-                                  <span>{p.name}</span>
-                                  <span className="text-xs text-gray-500">
-                                    ({detailCount})
-                                  </span>
+                                  {renderProductIdentity({
+                                    product,
+                                    name: p.name,
+                                    secondaryText: `${detailCount} detail`,
+                                    nameClassName:
+                                      "font-medium text-blue-600",
+                                  })}
                                   <svg
                                     className={`h-4 w-4 transform ${
                                       expandedDateProducts.has(compoundKey)
@@ -4547,6 +4763,9 @@ const Products: React.FC = () => {
                   ? Math.round((Number(item.total) || 0) / item.qty)
                   : 0;
                 const isExpanded = expandedSalesProductKey === k;
+                const product = item.productId
+                  ? products.find((p) => String(p.id) === String(item.productId))
+                  : null;
                 return (
                   <React.Fragment key={k}>
                     <tr>
@@ -4558,7 +4777,11 @@ const Products: React.FC = () => {
                           className="text-blue-600 hover:underline text-left flex items-center gap-2"
                           aria-expanded={isExpanded}
                         >
-                          <span>{item.name}</span>
+                          {renderProductIdentity({
+                            product,
+                            name: item.name,
+                            nameClassName: "font-medium text-blue-600",
+                          })}
                           <svg
                             className={`h-4 w-4 transform ${
                               isExpanded ? "rotate-180" : ""
@@ -5130,234 +5353,349 @@ const Products: React.FC = () => {
 
         {/* Add Product Modal */}
         {showAddForm && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
-              <div className="p-6">
-                <h2 className="text-xl font-semibold text-gray-900 mb-4">
-                  Tambah Produk Baru
-                </h2>
-
-                <form className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Nama Produk *
-                    </label>
-                    <input
-                      type="text"
-                      value={newProduct.name}
-                      onChange={(e) =>
-                        setNewProduct({ ...newProduct, name: e.target.value })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Masukkan nama produk"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Kategori
-                    </label>
-                    <select
-                      value={newProduct.category}
-                      onChange={(e) =>
-                        setNewProduct({
-                          ...newProduct,
-                          category: e.target.value as any,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="beverage">Minuman</option>
-                      <option value="food">Makanan</option>
-                      <option value="snack">Snack</option>
-                      <option value="other">Lainnya</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Tipe
-                    </label>
-                    <select
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      value={newProduct.product_type}
-                      onChange={(e) =>
-                        setNewProduct({
-                          ...newProduct,
-                          product_type: e.target.value,
-                        })
-                      }
-                    >
-                      <option value="raw_material">Bahan Baku</option>
-                      <option value="finished_good">Produk Jadi</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Satuan
-                    </label>
-                    <select
-                      value={newProduct.unit}
-                      onChange={(e) =>
-                        setNewProduct({
-                          ...newProduct,
-                          unit: e.target.value as "gram" | "liter" | "pcs",
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="gram">Gram</option>
-                      <option value="liter">Liter</option>
-                      <option value="pcs">Pcs</option>
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Harga Modal *
-                      </label>
-                      <input
-                        type="number"
-                        value={newProduct.cost}
-                        onChange={(e) =>
-                          setNewProduct({
-                            ...newProduct,
-                            cost: Number(e.target.value),
-                          })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="0"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Harga Jual *
-                      </label>
-                      <input
-                        type="number"
-                        value={newProduct.price}
-                        onChange={(e) =>
-                          setNewProduct({
-                            ...newProduct,
-                            price: Number(e.target.value),
-                          })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="0"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Stok Awal
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={newProduct.stock}
-                        onChange={(e) =>
-                          setNewProduct({
-                            ...newProduct,
-                            stock: Number(e.target.value),
-                          })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="0"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Min. Stok
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={newProduct.min_stock}
-                        onChange={(e) =>
-                          setNewProduct({
-                            ...newProduct,
-                            min_stock: Number(e.target.value),
-                          })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="0"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Barcode (Opsional)
-                    </label>
-                    <input
-                      type="text"
-                      value={newProduct.barcode}
-                      onChange={(e) =>
-                        setNewProduct({
-                          ...newProduct,
-                          barcode: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Scan atau masukkan barcode"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Deskripsi
-                    </label>
-                    <textarea
-                      value={newProduct.description}
-                      onChange={(e) =>
-                        setNewProduct({
-                          ...newProduct,
-                          description: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      rows={3}
-                      placeholder="Deskripsi produk"
-                    />
-                  </div>
-                  <div>
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={newProduct.is_active}
-                        onChange={(e) =>
-                          setNewProduct({
-                            ...newProduct,
-                            is_active: e.target.checked,
-                          })
-                        }
-                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                      />
-                      <span className="text-sm font-medium text-gray-700">
-                        Produk Aktif
-                      </span>
-                    </label>
-                  </div>
-                </form>
-
-                <div className="flex gap-3 mt-6">
-                  <button
-                    onClick={() => setShowAddForm(false)}
-                    className="flex-1 px-4 py-2 border border-gray-300 hover:border-gray-400 text-gray-700 rounded-lg font-medium transition-colors"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    onClick={handleAddProduct}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
-                  >
-                    Simpan Produk
-                  </button>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+            <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+              <div className="flex items-start justify-between border-b border-gray-200 px-6 py-5">
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    Tambah Produk Baru
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Susun data produk lebih cepat dengan form yang dibagi per section.
+                  </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddForm(false);
+                    setNewProduct({
+                      name: "",
+                      category: "beverage",
+                      product_type: "finished_good",
+                      unit: "pcs",
+                      price: 0,
+                      cost: 0,
+                      stock: 0,
+                      min_stock: 0,
+                      barcode: "",
+                      image_url: "",
+                      description: "",
+                      is_active: true,
+                    });
+                  }}
+                  className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <form
+                className="flex-1 overflow-y-auto p-6"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleAddProduct();
+                }}
+              >
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  <div className="space-y-6 rounded-xl border border-gray-200 bg-white p-5">
+                    <div>
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                        Informasi Utama
+                      </h3>
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Nama Produk *
+                      </label>
+                      <input
+                        type="text"
+                        value={newProduct.name}
+                        onChange={(e) =>
+                          setNewProduct({ ...newProduct, name: e.target.value })
+                        }
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                        placeholder="Masukkan nama produk"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Kategori
+                        </label>
+                        <select
+                          value={newProduct.category}
+                          onChange={(e) =>
+                            setNewProduct({
+                              ...newProduct,
+                              category: e.target.value as any,
+                            })
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="beverage">Minuman</option>
+                          <option value="food">Makanan</option>
+                          <option value="snack">Snack</option>
+                          <option value="other">Lainnya</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Tipe
+                        </label>
+                        <select
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                          value={newProduct.product_type}
+                          onChange={(e) =>
+                            setNewProduct({
+                              ...newProduct,
+                              product_type: e.target.value,
+                            })
+                          }
+                        >
+                          <option value="raw_material">Bahan Baku</option>
+                          <option value="finished_good">Produk Jadi</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Satuan
+                        </label>
+                        <select
+                          value={newProduct.unit}
+                          onChange={(e) =>
+                            setNewProduct({
+                              ...newProduct,
+                              unit: e.target.value as "gram" | "liter" | "pcs",
+                            })
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="gram">Gram</option>
+                          <option value="liter">Liter</option>
+                          <option value="pcs">Pcs</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Barcode (Opsional)
+                        </label>
+                        <input
+                          type="text"
+                          value={newProduct.barcode}
+                          onChange={(e) =>
+                            setNewProduct({
+                              ...newProduct,
+                              barcode: e.target.value,
+                            })
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                          placeholder="Scan atau masukkan barcode"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Deskripsi
+                      </label>
+                      <textarea
+                        value={newProduct.description}
+                        onChange={(e) =>
+                          setNewProduct({
+                            ...newProduct,
+                            description: e.target.value,
+                          })
+                        }
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                        rows={6}
+                        placeholder="Deskripsi produk"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-6 rounded-xl border border-gray-200 bg-gray-50/60 p-5">
+                    <div>
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                        Harga, Stok, dan Media
+                      </h3>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Harga Modal *
+                        </label>
+                        <input
+                          type="number"
+                          value={newProduct.cost}
+                          onChange={(e) =>
+                            setNewProduct({
+                              ...newProduct,
+                              cost: Number(e.target.value),
+                            })
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                          placeholder="0"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Harga Jual *
+                        </label>
+                        <input
+                          type="number"
+                          value={newProduct.price}
+                          onChange={(e) =>
+                            setNewProduct({
+                              ...newProduct,
+                              price: Number(e.target.value),
+                            })
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Stok Awal
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={newProduct.stock}
+                          onChange={(e) =>
+                            setNewProduct({
+                              ...newProduct,
+                              stock: Number(e.target.value),
+                            })
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                          placeholder="0"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Min. Stok
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={newProduct.min_stock}
+                          onChange={(e) =>
+                            setNewProduct({
+                              ...newProduct,
+                              min_stock: Number(e.target.value),
+                            })
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-dashed border-gray-300 bg-white p-4">
+                      <label className="mb-2 block text-sm font-medium text-gray-700">
+                        Gambar Produk (Max 2MB)
+                      </label>
+                      <div className="space-y-3">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              await uploadProductImage(file, "new");
+                              e.currentTarget.value = "";
+                            }
+                          }}
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-blue-700 hover:file:bg-blue-100"
+                        />
+                        {newProduct.image_url ? (
+                          <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                            {renderProductThumbnail(newProduct, "h-16 w-16")}
+                            <div>
+                              <p className="text-sm font-medium text-gray-700">
+                                Preview gambar produk
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                Thumbnail kecil akan dipakai di daftar produk.
+                              </p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="rounded-lg bg-gray-50 px-3 py-4 text-sm text-gray-500">
+                            Upload gambar agar produk lebih mudah dikenali saat dilihat di list.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={newProduct.is_active}
+                          onChange={(e) =>
+                            setNewProduct({
+                              ...newProduct,
+                              is_active: e.target.checked,
+                            })
+                          }
+                          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span>
+                          <span className="block text-sm font-medium text-gray-700">
+                            Produk Aktif
+                          </span>
+                          <span className="block text-xs text-gray-500">
+                            Produk aktif akan langsung muncul di daftar dan transaksi terkait.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </form>
+
+              <div className="flex gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddForm(false);
+                    setNewProduct({
+                      name: "",
+                      category: "beverage",
+                      product_type: "finished_good",
+                      unit: "pcs",
+                      price: 0,
+                      cost: 0,
+                      stock: 0,
+                      min_stock: 0,
+                      barcode: "",
+                      image_url: "",
+                      description: "",
+                      is_active: true,
+                    });
+                  }}
+                  className="flex-1 rounded-lg border border-gray-300 px-4 py-2 font-medium text-gray-700 transition-colors hover:border-gray-400"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddProduct}
+                  className="flex-1 rounded-lg bg-blue-600 px-4 py-2 font-medium text-white transition-colors hover:bg-blue-700"
+                >
+                  Simpan Produk
+                </button>
               </div>
             </div>
           </div>
@@ -5429,13 +5767,18 @@ const Products: React.FC = () => {
                     </div>
 
                     <div className="space-y-3">
-                      {newPurchase.items.map((item, index) => (
+                      {newPurchase.items.map((item, index) => {
+                        const selectedProduct = products.find(
+                          (p) => p.id === item.productId
+                        );
+
+                        return (
                         <div
                           key={index}
-                          className="grid grid-cols-12 gap-3 items-end p-3 bg-gray-50 rounded-lg"
+                          className="grid grid-cols-12 gap-3 items-end rounded-lg bg-gray-50 p-3"
                         >
                           <div className="col-span-4">
-                            <label className="block text-xs font-medium text-gray-700 mb-1">
+                            <label className="mb-1 block text-xs font-medium text-gray-700">
                               Produk
                             </label>
                             <button
@@ -5443,18 +5786,30 @@ const Products: React.FC = () => {
                               onClick={() =>
                                 setShowProductSelectModal({ open: true, index })
                               }
-                              className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent text-left flex items-center justify-between"
+                              className="flex w-full items-center justify-between rounded border border-gray-300 px-2 py-2 text-left text-sm focus:border-transparent focus:ring-2 focus:ring-blue-500"
                             >
-                              <span>
-                                {item.productId
-                                  ? products.find(
-                                      (p) => p.id === item.productId
-                                    )?.name ||
-                                    item.productName ||
-                                    "Pilih Produk"
-                                  : "Pilih Produk"}
+                              <span className="flex min-w-0 items-center gap-2">
+                                {selectedProduct ? (
+                                  renderProductThumbnail(selectedProduct, "h-10 w-10")
+                                ) : (
+                                  <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-gray-100 text-xs font-medium text-gray-400">
+                                    -
+                                  </span>
+                                )}
+                                <span className="min-w-0">
+                                  <span className="block truncate font-medium text-gray-800">
+                                    {selectedProduct?.name ||
+                                      item.productName ||
+                                      "Pilih Produk"}
+                                  </span>
+                                  <span className="block truncate text-xs text-gray-500">
+                                    {selectedProduct
+                                      ? `Stok ${selectedProduct.stock} ${selectedProduct.unit || ""}`
+                                      : "Klik untuk memilih produk"}
+                                  </span>
+                                </span>
                               </span>
-                              <Search className="h-4 w-4 text-gray-400" />
+                              <Search className="h-4 w-4 flex-shrink-0 text-gray-400" />
                             </button>
                           </div>
                           <div className="col-span-2">
@@ -5477,12 +5832,7 @@ const Products: React.FC = () => {
                                 placeholder="0"
                               />
                               <span className="text-sm font-medium text-gray-600 px-2 py-1 bg-gray-100 rounded text-center flex items-center justify-center">
-                                {(() => {
-                                  const selectedProduct = products.find(
-                                    (p) => p.id === item.productId
-                                  );
-                                  return selectedProduct?.unit || "Unit";
-                                })()}
+                                {selectedProduct?.unit || "Unit"}
                               </span>
                             </div>
                           </div>
@@ -5521,7 +5871,7 @@ const Products: React.FC = () => {
                             </button>
                           </div>
                         </div>
-                      ))}
+                      );})}
                     </div>
 
                     {/* Real-time Total Calculation */}
@@ -5547,14 +5897,27 @@ const Products: React.FC = () => {
                                     Rp {subtotal.toLocaleString("id-ID")}
                                   </span>
                                 </div> */}
-                                {newPurchase.items.map((item, index) => (
+                                {newPurchase.items.map((item, index) => {
+                                  const selectedProduct = products.find(
+                                    (p) => p.id === item.productId
+                                  );
+
+                                  return (
                                   <div
                                     key={index}
-                                    className="flex justify-between items-center"
+                                    className="flex items-center justify-between gap-3"
                                   >
-                                    <div className="text-blue-800">
-                                      {item.productName} ({item.quantity} x Rp{" "}
-                                      {item.unitCost.toLocaleString("id-ID")})
+                                    <div className="flex min-w-0 items-center gap-3 text-blue-800">
+                                      {selectedProduct &&
+                                        renderProductThumbnail(selectedProduct, "h-10 w-10")}
+                                      <div className="min-w-0">
+                                        <div className="truncate font-medium text-blue-900">
+                                          {selectedProduct?.name || item.productName || "Produk"}
+                                        </div>
+                                        <div className="truncate text-sm text-blue-800">
+                                          {item.quantity} x Rp {item.unitCost.toLocaleString("id-ID")}
+                                        </div>
+                                      </div>
                                     </div>
                                     <div className="font-medium text-blue-900">
                                       Rp{" "}
@@ -5563,7 +5926,7 @@ const Products: React.FC = () => {
                                       ).toLocaleString("id-ID")}
                                     </div>
                                   </div>
-                                ))}
+                                );})}
                                 {/* <div className="flex justify-between items-center">
                                   <span className="text-blue-800">
                                     Pajak (10%):
@@ -5926,232 +6289,315 @@ const Products: React.FC = () => {
 
         {/* Edit Product Modal */}
         {showEditForm && editProduct && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
-              <div className="p-6">
-                <h2 className="text-xl font-semibold text-gray-900 mb-4">
-                  Edit Produk
-                </h2>
-                <form
-                  className="space-y-4"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    handleEditProduct();
-                  }}
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+            <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+              <div className="flex items-start justify-between border-b border-gray-200 px-6 py-5">
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    Edit Produk
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Perbarui informasi inti, harga, stok, dan thumbnail produk tanpa perlu scroll terlalu panjang.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowEditForm(null)}
+                  className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
                 >
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Nama Produk *
-                    </label>
-                    <input
-                      type="text"
-                      value={editProduct.name}
-                      onChange={(e) =>
-                        setEditProduct({ ...editProduct, name: e.target.value })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Masukkan nama produk"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Kategori
-                    </label>
-                    <select
-                      value={editProduct.category}
-                      onChange={(e) =>
-                        setEditProduct({
-                          ...editProduct,
-                          category: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="beverage">Minuman</option>
-                      <option value="food">Makanan</option>
-                      <option value="snack">Snack</option>
-                      <option value="other">Lainnya</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Tipe
-                    </label>
-                    <select
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      value={editProduct.product_type}
-                      onChange={(e) =>
-                        setEditProduct({
-                          ...editProduct,
-                          product_type: e.target.value,
-                        })
-                      }
-                    >
-                      <option value="raw_material">Bahan Baku</option>
-                      <option value="finished_good">Produk Jadi</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Satuan
-                    </label>
-                    <select
-                      value={editProduct.unit || "pcs"}
-                      onChange={(e) =>
-                        setEditProduct({
-                          ...editProduct,
-                          unit: e.target.value as "gram" | "liter" | "pcs",
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="gram">Gram</option>
-                      <option value="liter">Liter</option>
-                      <option value="pcs">Pcs</option>
-                    </select>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <form
+                className="flex-1 overflow-y-auto p-6"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleEditProduct();
+                }}
+              >
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  <div className="space-y-6 rounded-xl border border-gray-200 bg-white p-5">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Harga Modal *
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                        Informasi Utama
+                      </h3>
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Nama Produk *
                       </label>
                       <input
-                        type="number"
-                        value={editProduct.cost}
+                        type="text"
+                        value={editProduct.name}
                         onChange={(e) =>
-                          setEditProduct({
-                            ...editProduct,
-                            cost: Number(e.target.value),
-                          })
+                          setEditProduct({ ...editProduct, name: e.target.value })
                         }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="0"
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                        placeholder="Masukkan nama produk"
                       />
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Harga Jual *
-                      </label>
-                      <input
-                        type="number"
-                        value={editProduct.price}
-                        onChange={(e) =>
-                          setEditProduct({
-                            ...editProduct,
-                            price: Number(e.target.value),
-                          })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="0"
-                      />
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Kategori
+                        </label>
+                        <select
+                          value={editProduct.category}
+                          onChange={(e) =>
+                            setEditProduct({
+                              ...editProduct,
+                              category: e.target.value,
+                            })
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="beverage">Minuman</option>
+                          <option value="food">Makanan</option>
+                          <option value="snack">Snack</option>
+                          <option value="other">Lainnya</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Tipe
+                        </label>
+                        <select
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                          value={editProduct.product_type}
+                          onChange={(e) =>
+                            setEditProduct({
+                              ...editProduct,
+                              product_type: e.target.value,
+                            })
+                          }
+                        >
+                          <option value="raw_material">Bahan Baku</option>
+                          <option value="finished_good">Produk Jadi</option>
+                        </select>
+                      </div>
                     </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Stok
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={editProduct.stock}
-                        onChange={(e) =>
-                          setEditProduct({
-                            ...editProduct,
-                            stock: Number(e.target.value),
-                          })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="0"
-                      />
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Satuan
+                        </label>
+                        <select
+                          value={editProduct.unit || "pcs"}
+                          onChange={(e) =>
+                            setEditProduct({
+                              ...editProduct,
+                              unit: e.target.value as "gram" | "liter" | "pcs",
+                            })
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="gram">Gram</option>
+                          <option value="liter">Liter</option>
+                          <option value="pcs">Pcs</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Barcode (Opsional)
+                        </label>
+                        <input
+                          type="text"
+                          value={editProduct.barcode || ""}
+                          onChange={(e) =>
+                            setEditProduct({
+                              ...editProduct,
+                              barcode: e.target.value,
+                            })
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                          placeholder="Scan atau masukkan barcode"
+                        />
+                      </div>
                     </div>
+
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Min. Stok
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Deskripsi
                       </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={editProduct.min_stock}
+                      <textarea
+                        value={editProduct.description || ""}
                         onChange={(e) =>
                           setEditProduct({
                             ...editProduct,
-                            min_stock: Number(e.target.value),
+                            description: e.target.value,
                           })
                         }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="0"
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                        rows={6}
+                        placeholder="Deskripsi produk"
                       />
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Barcode (Opsional)
-                    </label>
-                    <input
-                      type="text"
-                      value={editProduct.barcode || ""}
-                      onChange={(e) =>
-                        setEditProduct({
-                          ...editProduct,
-                          barcode: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Scan atau masukkan barcode"
-                    />
+
+                  <div className="space-y-6 rounded-xl border border-gray-200 bg-gray-50/60 p-5">
+                    <div>
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                        Harga, Stok, dan Media
+                      </h3>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Harga Modal *
+                        </label>
+                        <input
+                          type="number"
+                          value={editProduct.cost}
+                          onChange={(e) =>
+                            setEditProduct({
+                              ...editProduct,
+                              cost: Number(e.target.value),
+                            })
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                          placeholder="0"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Harga Jual *
+                        </label>
+                        <input
+                          type="number"
+                          value={editProduct.price}
+                          onChange={(e) =>
+                            setEditProduct({
+                              ...editProduct,
+                              price: Number(e.target.value),
+                            })
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Stok
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={editProduct.stock}
+                          onChange={(e) =>
+                            setEditProduct({
+                              ...editProduct,
+                              stock: Number(e.target.value),
+                            })
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                          placeholder="0"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">
+                          Min. Stok
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={editProduct.min_stock}
+                          onChange={(e) =>
+                            setEditProduct({
+                              ...editProduct,
+                              min_stock: Number(e.target.value),
+                            })
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-dashed border-gray-300 bg-white p-4">
+                      <label className="mb-2 block text-sm font-medium text-gray-700">
+                        Gambar Produk (Max 2MB)
+                      </label>
+                      <div className="space-y-3">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              await uploadProductImage(file, "edit");
+                              e.currentTarget.value = "";
+                            }
+                          }}
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-blue-700 hover:file:bg-blue-100"
+                        />
+                        {editProduct.image_url ? (
+                          <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                            {renderProductThumbnail(editProduct, "h-16 w-16")}
+                            <div>
+                              <p className="text-sm font-medium text-gray-700">
+                                Preview gambar produk
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                Thumbnail kecil akan dipakai di daftar produk.
+                              </p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="rounded-lg bg-gray-50 px-3 py-4 text-sm text-gray-500">
+                            Belum ada gambar. Upload thumbnail agar produk lebih mudah dikenali.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={editProduct.is_active}
+                          onChange={(e) =>
+                            setEditProduct({
+                              ...editProduct,
+                              is_active: e.target.checked,
+                            })
+                          }
+                          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span>
+                          <span className="block text-sm font-medium text-gray-700">
+                            Produk Aktif
+                          </span>
+                          <span className="block text-xs text-gray-500">
+                            Produk aktif tetap tersedia untuk ditampilkan dan dipakai di transaksi.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Deskripsi
-                    </label>
-                    <textarea
-                      value={editProduct.description || ""}
-                      onChange={(e) =>
-                        setEditProduct({
-                          ...editProduct,
-                          description: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      rows={3}
-                      placeholder="Deskripsi produk"
-                    />
-                  </div>
-                  <div>
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editProduct.is_active}
-                        onChange={(e) =>
-                          setEditProduct({
-                            ...editProduct,
-                            is_active: e.target.checked,
-                          })
-                        }
-                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                      />
-                      <span className="text-sm font-medium text-gray-700">
-                        Produk Aktif
-                      </span>
-                    </label>
-                  </div>
-                  <div className="flex gap-3 mt-6">
-                    <button
-                      type="button"
-                      onClick={() => setShowEditForm(null)}
-                      className="flex-1 px-4 py-2 border border-gray-300 hover:border-gray-400 text-gray-700 rounded-lg font-medium transition-colors"
-                    >
-                      Batal
-                    </button>
-                    <button
-                      type="submit"
-                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
-                    >
-                      Simpan Perubahan
-                    </button>
-                  </div>
-                </form>
+                </div>
+              </form>
+              <div className="flex gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
+                <button
+                  type="button"
+                  onClick={() => setShowEditForm(null)}
+                  className="flex-1 rounded-lg border border-gray-300 px-4 py-2 font-medium text-gray-700 transition-colors hover:border-gray-400"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleEditProduct}
+                  className="flex-1 rounded-lg bg-blue-600 px-4 py-2 font-medium text-white transition-colors hover:bg-blue-700"
+                >
+                  Simpan Perubahan
+                </button>
               </div>
             </div>
           </div>
@@ -6231,13 +6677,16 @@ const Products: React.FC = () => {
                         className="w-full text-left p-4 hover:bg-gray-50 transition-colors"
                       >
                         <div className="flex items-center justify-between">
-                          <div>
-                            <div className="font-medium text-gray-900">
-                              {p.name}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              Kategori: {p.category || "-"}
-                              {p.barcode ? ` • Barcode: ${p.barcode}` : ""}
+                          <div className="flex items-center gap-3 min-w-0">
+                            {renderProductThumbnail(p, "h-12 w-12")}
+                            <div className="min-w-0">
+                              <div className="font-medium text-gray-900 truncate">
+                                {p.name}
+                              </div>
+                              <div className="text-xs text-gray-500 truncate">
+                                Kategori: {p.category || "-"}
+                                {p.barcode ? ` • Barcode: ${p.barcode}` : ""}
+                              </div>
                             </div>
                           </div>
                           <div className="text-right">
@@ -6630,17 +7079,12 @@ const Products: React.FC = () => {
                           const selectedProduct = products.find(
                             (p) => p.id === stockReductionForm.product_id
                           );
-                          return (
-                            <div>
-                              <div className="font-medium text-gray-900">
-                                {selectedProduct?.name ||
-                                  "Produk tidak ditemukan"}
-                              </div>
-                              <div className="text-xs text-gray-500">
-                                Stok: {selectedProduct?.stock || 0}
-                              </div>
-                            </div>
-                          );
+                          return renderProductIdentity({
+                            product: selectedProduct,
+                            name:
+                              selectedProduct?.name || "Produk tidak ditemukan",
+                            secondaryText: `Stok: ${selectedProduct?.stock || 0}`,
+                          });
                         })()
                       ) : (
                         <span className="text-gray-500">
@@ -6820,13 +7264,16 @@ const Products: React.FC = () => {
                         className="w-full text-left p-4 hover:bg-gray-50 transition-colors"
                       >
                         <div className="flex items-center justify-between">
-                          <div>
-                            <div className="font-medium text-gray-900">
-                              {p.name}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              Kategori: {p.category || "-"}
-                              {p.barcode ? ` • Barcode: ${p.barcode}` : ""}
+                          <div className="flex items-center gap-3 min-w-0">
+                            {renderProductThumbnail(p, "h-12 w-12")}
+                            <div className="min-w-0">
+                              <div className="font-medium text-gray-900 truncate">
+                                {p.name}
+                              </div>
+                              <div className="text-xs text-gray-500 truncate">
+                                Kategori: {p.category || "-"}
+                                {p.barcode ? ` • Barcode: ${p.barcode}` : ""}
+                              </div>
                             </div>
                           </div>
                           <div className="text-right">
@@ -6967,15 +7414,12 @@ const Products: React.FC = () => {
                         }}
                         className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                       />
-                      <div className="flex-1">
-                        <div className="font-medium text-gray-900">
-                          {product.name}
-                        </div>
-                        <div className="text-sm text-gray-600">
-                          {product.category} • Rp{" "}
-                          {product.price.toLocaleString("id-ID")} •{" "}
-                          {product.stock} {product.unit}
-                        </div>
+                      <div className="flex-1 min-w-0">
+                        {renderProductIdentity({
+                          product,
+                          name: product.name,
+                          secondaryText: `${product.category} • Rp ${product.price.toLocaleString("id-ID")} • ${product.stock} ${product.unit}`,
+                        })}
                       </div>
                     </div>
                   ))}

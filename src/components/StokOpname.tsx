@@ -151,6 +151,54 @@ const StokOpname: React.FC<{
     });
   }, [productSearchTerm, products]);
 
+  const getProductImageUrl = (product: any) =>
+    product?.image_url || product?.image || "";
+
+  const renderProductThumbnail = (product: any, sizeClass = "h-10 w-10") => {
+    const imageUrl = getProductImageUrl(product);
+
+    if (imageUrl) {
+      return (
+        <img
+          src={imageUrl}
+          alt={product?.name || "Produk"}
+          className={`${sizeClass} flex-shrink-0 rounded-lg object-cover border border-gray-200 bg-gray-100`}
+          loading="lazy"
+        />
+      );
+    }
+
+    return (
+      <div
+        className={`${sizeClass} flex-shrink-0 rounded-lg border border-dashed border-gray-300 bg-gray-100 text-[10px] font-semibold uppercase tracking-wide text-gray-500 flex items-center justify-center`}
+      >
+        IMG
+      </div>
+    );
+  };
+
+  const renderProductIdentity = ({
+    product,
+    name,
+    secondaryText,
+    sizeClass = "h-10 w-10",
+  }: {
+    product?: any;
+    name: string;
+    secondaryText?: string;
+    sizeClass?: string;
+  }) => (
+    <div className="flex min-w-0 items-center gap-2">
+      {renderProductThumbnail(product, sizeClass)}
+      <div className="min-w-0">
+        <div className="truncate font-medium text-gray-900">{name}</div>
+        {secondaryText && (
+          <div className="truncate text-xs text-gray-500">{secondaryText}</div>
+        )}
+      </div>
+    </div>
+  );
+
   // Load saved sessions from database
   const loadSavedSessions = async () => {
     try {
@@ -716,15 +764,28 @@ const StokOpname: React.FC<{
                       <button
                         type="button"
                         onClick={() => openProductSelect(index)}
-                        className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-left flex items-center justify-between"
+                        className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-left flex items-center justify-between gap-2"
                       >
-                        <span>
-                          {item.productId
-                            ? products.find((p) => p.id === item.productId)
-                                ?.name ||
-                              item.productName ||
-                              "Pilih Produk"
-                            : "Pilih Produk"}
+                        <span className="min-w-0">
+                          {item.productId ? (
+                            (() => {
+                              const selectedProduct = products.find(
+                                (p) => p.id === item.productId
+                              );
+                              return renderProductIdentity({
+                                product: selectedProduct,
+                                name:
+                                  selectedProduct?.name ||
+                                  item.productName ||
+                                  "Pilih Produk",
+                                secondaryText: selectedProduct
+                                  ? `${selectedProduct.category || "produk"} • ${selectedProduct.unit || "pcs"}`
+                                  : undefined,
+                              });
+                            })()
+                          ) : (
+                            <span className="text-gray-500">Pilih Produk</span>
+                          )}
                         </span>
                         <Search className="h-4 w-4 text-gray-400" />
                       </button>
@@ -943,14 +1004,15 @@ const StokOpname: React.FC<{
                     className="w-full text-left p-4 hover:bg-gray-50 transition-colors"
                   >
                     <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-medium text-gray-900">
-                          {p.name}
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          Kategori: {p.category || "-"}
-                          {p.barcode ? ` • Barcode: ${p.barcode}` : ""}
-                        </div>
+                      <div className="min-w-0 pr-3">
+                        {renderProductIdentity({
+                          product: p,
+                          name: p.name,
+                          secondaryText: `Kategori: ${p.category || "-"}${
+                            p.barcode ? ` • Barcode: ${p.barcode}` : ""
+                          }`,
+                          sizeClass: "h-12 w-12",
+                        })}
                       </div>
                       <div className="text-right">
                         <div className="text-sm text-gray-700">
@@ -1493,13 +1555,12 @@ const StokOpname: React.FC<{
                               }}
                               className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                             />
-                            <div className="flex-1">
-                              <div className="font-medium text-gray-900">
-                                {product.name}
-                              </div>
-                              <div className="text-sm text-gray-600">
-                                {product.category || "-"}
-                              </div>
+                            <div className="flex-1 min-w-0">
+                              {renderProductIdentity({
+                                product,
+                                name: product.name,
+                                secondaryText: `${product.category || "-"} • ${product.unit || "pcs"}`,
+                              })}
                             </div>
                           </div>
                         ))}
@@ -1749,7 +1810,17 @@ const StokOpname: React.FC<{
                                       (it: any) => (
                                         <tr key={it.id}>
                                           <td className="px-4 py-2">
-                                            {it.productName || "-"}
+                                            {renderProductIdentity({
+                                              product: products.find(
+                                                (p: any) =>
+                                                  String(p.id) ===
+                                                  String(it.productId)
+                                              ),
+                                              name: it.productName || "-",
+                                              secondaryText: it.barcode
+                                                ? `Barcode: ${it.barcode}`
+                                                : undefined,
+                                            })}
                                           </td>
                                           <td className="px-4 py-2 text-right">
                                             {Number(

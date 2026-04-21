@@ -554,6 +554,7 @@ export interface Product {
   minStock: number;
   barcode?: string;
   image?: string;
+  image_url?: string;
   description?: string;
   isActive: boolean;
   unit?:string;
