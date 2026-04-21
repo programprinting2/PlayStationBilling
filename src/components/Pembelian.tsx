@@ -85,6 +85,8 @@ const Pembelian: React.FC = () => {
   const [stockLoacingData, setStockLoadingData] = useState(false);
   const [stockSortBy, setStockSortBy] = useState<string | null>(null);
   const [stockSortOrder, setStockSortOrder] = useState<"asc" | "desc">("asc");
+  const [stockGroupBy, setStockGroupBy] = useState<"none" | "category" | "product_type">("none");
+  const [expandedStockGroups, setExpandedStockGroups] = useState<Record<string, boolean>>({});
   const [stockSearch, setStockSearch] = useState("");
   const [stockCategoryFilter, setStockCategoryFilter] = useState("");
   const [selectedStockIds, setSelectedStockIds] = useState<string[]>([]);
@@ -558,6 +560,25 @@ const Pembelian: React.FC = () => {
   const getStockProductId = (product: any) => String(product.id ?? "");
   const getVisibleStockProducts = () => getSortedProducts();
   const visibleStockProducts = getVisibleStockProducts();
+  const groupedVisibleStockProducts: Record<string, any[]> =
+    stockGroupBy === "none"
+      ? {}
+      : visibleStockProducts.reduce<Record<string, any[]>>((groups, product) => {
+          const rawGroupValue =
+            stockGroupBy === "category"
+              ? product.category
+              : product.product_type === "raw_material"
+                ? "Bahan Baku"
+                : product.product_type === "finished_good"
+                  ? "Produk Jadi"
+                  : product.product_type || "Tanpa Tipe";
+          const groupKey = rawGroupValue || "Tanpa Kategori";
+
+          if (!groups[groupKey]) groups[groupKey] = [];
+          groups[groupKey].push(product);
+          return groups;
+        }, {});
+  const groupedVisibleStockEntries: Array<[string, any[]]> = Object.entries(groupedVisibleStockProducts);
   const areAllStockSelected = visibleStockProducts.length > 0 && visibleStockProducts.every(p => selectedStockIds.includes(getStockProductId(p)));
   const selectedStockProducts = visibleStockProducts.filter(p => selectedStockIds.includes(getStockProductId(p)));
   const selectedStockProductsText = [
@@ -580,6 +601,28 @@ const Pembelian: React.FC = () => {
       setSelectedStockIds(prev => Array.from(new Set([...prev, ...visibleIds])));
     }
   };
+
+  const toggleStockGroup = (groupName: string) => {
+    setExpandedStockGroups((prev) => ({
+      ...prev,
+      [groupName]: prev[groupName] === false,
+    }));
+  };
+
+  useEffect(() => {
+    if (stockGroupBy === "none") {
+      setExpandedStockGroups({});
+      return;
+    }
+
+    setExpandedStockGroups((prev) => {
+      const nextState: Record<string, boolean> = {};
+      for (const [groupName] of groupedVisibleStockEntries) {
+        nextState[groupName] = prev[groupName] ?? false;
+      }
+      return nextState;
+    });
+  }, [stockGroupBy, groupedVisibleStockEntries.length, stockSearch, stockCategoryFilter, stockSortBy, stockSortOrder]);
 
   const copySelectedStockToClipboard = async () => {
     const text = [
@@ -1435,8 +1478,8 @@ const Pembelian: React.FC = () => {
               />
             </div>
           </div>
-          <div className="flex items-end gap-3">
-            <div className="w-48">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="w-52">
               <label className="block text-xs font-bold text-gray-600 uppercase mb-2">Filter Kategori</label>
               <select
                 value={stockCategoryFilter}
@@ -1449,6 +1492,18 @@ const Pembelian: React.FC = () => {
                     {category}
                   </option>
                 ))}
+              </select>
+            </div>
+            <div className="w-52">
+              <label className="block text-xs font-bold text-gray-600 uppercase mb-2">Group Data Stok</label>
+              <select
+                value={stockGroupBy}
+                onChange={(e) => setStockGroupBy(e.target.value as "none" | "category" | "product_type")}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              >
+                <option value="none">Tanpa Grouping</option>
+                <option value="category">Grouping: Kategori</option>
+                <option value="product_type">Grouping: Tipe Produk</option>
               </select>
             </div>
             <button
@@ -1513,6 +1568,71 @@ const Pembelian: React.FC = () => {
                     Tidak ada data produk
                   </td>
                 </tr>
+              ) : stockGroupBy !== "none" ? (
+                groupedVisibleStockEntries.map(([groupName, groupProducts]) => (
+                  <React.Fragment key={groupName}>
+                    <tr className="bg-slate-100/80">
+                      <td colSpan={6} className="px-6 py-3">
+                        <button
+                          type="button"
+                          onClick={() => toggleStockGroup(groupName)}
+                          className="w-full flex items-center justify-between gap-4 text-left"
+                        >
+                          <div className="flex items-center gap-3">
+                            <ChevronRight className={`h-4 w-4 text-slate-500 transform transition-transform ${expandedStockGroups[groupName] === false ? "rotate-0" : "rotate-90"}`} />
+                            <div>
+                              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                                {stockGroupBy === "category" ? "Kategori" : "Tipe Produk"}
+                              </p>
+                              <h4 className="text-sm font-bold text-slate-900">{groupName}</h4>
+                            </div>
+                          </div>
+                          <div className="text-sm text-slate-600">
+                            {groupProducts.length} produk
+                          </div>
+                        </button>
+                      </td>
+                    </tr>
+                    {expandedStockGroups[groupName] !== false && groupProducts.map((product) => {
+                      const productId = getStockProductId(product);
+                      return (
+                        <tr key={productId} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4">
+                            <input
+                              type="checkbox"
+                              checked={selectedStockIds.includes(productId)}
+                              onChange={() => toggleSelectStock(productId)}
+                              className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                            />
+                          </td>
+                          <td className="px-6 py-4 font-medium text-gray-900">{product.name}</td>
+                          <td className="px-6 py-4 text-gray-600">{product.category || "-"}</td>
+                          <td className="px-6 py-4 text-center">
+                            <button
+                              onClick={() => handleOpenStockCard(product)}
+                              title="Kartu Stok"
+                              className="p-1 text-gray-400 hover:text-yellow-600 transition-colors"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+                                <path d="M3 3h18v2H3V3zm2 6h14v2H5V9zm0 6h8v2H5v-2z" />
+                              </svg>
+                            </button>
+                          </td>
+                          <td className="px-6 py-4 text-right text-gray-600">{product.min_stock || 0}</td>
+                          <td className="px-6 py-4 text-right">
+                            <span className={`font-bold ${
+                              product.stock === 0 ? "text-red-600" :
+                              product.stock <= (product.min_stock || 0) ? "text-orange-600" :
+                              "text-blue-600"
+                            }`}>
+                              {product.stock || 0} {product.unit || "pcs"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                ))
               ) : (
                 visibleStockProducts.map((product) => {
                   const productId = getStockProductId(product);
