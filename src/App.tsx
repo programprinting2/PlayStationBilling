@@ -1,6 +1,7 @@
 import React from "react";
 import { Routes, Route } from "react-router-dom";
 import Dashboard from "./components/Dashboard";
+import AdminDashboard from "./components/AdminDashboard";
 import Navigation from "./components/Navigation";
 import Cashier from "./components/Cashier";
 import CashierSession from "./components/CashierSession";
@@ -39,6 +40,9 @@ const App: React.FC = () => {
 const AppLayout: React.FC = () => {
   const { user, isLoading } = useAuth();
   const [activeTab, setActiveTab] = React.useState("dashboard");
+  const isAdministrator =
+    user?.roles?.name?.toLowerCase() === "administrator" ||
+    user?.roles?.id?.toLowerCase() === "admin";
 
   if (isLoading) {
     // Tampilkan loading spinner
@@ -56,7 +60,7 @@ const AppLayout: React.FC = () => {
   const renderContent = () => {
     switch (activeTab) {
       case "dashboard":
-        return <Dashboard />;
+        return isAdministrator ? <AdminDashboard /> : <Dashboard />;
       // case "cashier":
       //   return <Cashier />;
       case "cashier-session":
@@ -102,7 +106,7 @@ const AppLayout: React.FC = () => {
       case "device":
         return <DeviceManagement />;
       default:
-        return <Dashboard />;
+        return isAdministrator ? <AdminDashboard /> : <Dashboard />;
     }
   };
 
