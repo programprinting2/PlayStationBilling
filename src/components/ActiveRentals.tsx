@@ -10089,13 +10089,34 @@ export const ActiveRentals: React.FC = () => {
                         key={prod.product_id || idx}
                         className="flex items-center justify-between bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2"
                       >
-                        <div>
-                          <span className="font-medium text-gray-900">
-                            {prod.product_name}
-                          </span>
-                          <span className="ml-2 text-xs text-gray-500">
-                            x{prod.quantity}
-                          </span>
+                        <div className="flex min-w-0 items-center gap-3">
+                          {(() => {
+                            const billingProduct = products.find(
+                              (p) => p.id === prod.product_id,
+                            );
+                            const imageUrl =
+                              (billingProduct as any)?.image_url ||
+                              (billingProduct as any)?.image ||
+                              "";
+                            return imageUrl ? (
+                              <img
+                                src={imageUrl}
+                                alt={prod.product_name || "Produk"}
+                                className="h-10 w-10 flex-shrink-0 rounded-lg border border-yellow-200 bg-white object-cover"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div className="h-10 w-10 flex-shrink-0 rounded-lg border border-dashed border-yellow-300 bg-yellow-100" />
+                            );
+                          })()}
+                          <div className="min-w-0">
+                            <span className="font-medium text-gray-900 truncate block">
+                              {prod.product_name}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              x{prod.quantity}
+                            </span>
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-yellow-700">
@@ -10215,6 +10236,20 @@ export const ActiveRentals: React.FC = () => {
                         : "cursor-pointer hover:shadow-md"
                     }`}
                   >
+                    <div className="mb-3 overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
+                      {((product as any).image_url || (product as any).image) ? (
+                        <img
+                          src={(product as any).image_url || (product as any).image}
+                          alt={product.name || "Produk"}
+                          className="h-28 w-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="h-28 w-full flex items-center justify-center text-gray-300">
+                          <ShoppingCart className="h-8 w-8" />
+                        </div>
+                      )}
+                    </div>
                     <div className="mb-3">
                       <span
                         className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(
@@ -10277,6 +10312,23 @@ export const ActiveRentals: React.FC = () => {
                         key={item.productId}
                         className="bg-white rounded-lg p-4 border border-gray-200"
                       >
+                        {(() => {
+                          const cartProduct = products.find(
+                            (p) => p.id === item.productId,
+                          );
+                          const imageUrl =
+                            (cartProduct as any)?.image_url ||
+                            (cartProduct as any)?.image ||
+                            "";
+                          return imageUrl ? (
+                            <img
+                              src={imageUrl}
+                              alt={item.productName || "Produk"}
+                              className="mb-3 h-16 w-full rounded-lg border border-gray-200 bg-gray-50 object-cover"
+                              loading="lazy"
+                            />
+                          ) : null;
+                        })()}
                         <div className="flex items-center justify-between mb-2">
                           <h4 className="font-medium text-gray-900">
                             {item.productName}
