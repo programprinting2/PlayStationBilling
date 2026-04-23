@@ -6,6 +6,9 @@ import {
   CalendarRange,
   Clock3,
   DollarSign,
+  Package,
+  RefreshCw,
+  Shield,
   ShoppingCart,
   Ticket,
   TrendingDown,
@@ -54,6 +57,24 @@ const parseLocalDate = (dateValue: string) => {
   const [year, month, day] = dateValue.split("-").map(Number);
   if (!year || !month || !day) return null;
   return new Date(year, month - 1, day);
+};
+
+const toLocalIsoOffset = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  const milliseconds = String(date.getMilliseconds()).padStart(3, "0");
+
+  const offsetMinutes = -date.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const absOffset = Math.abs(offsetMinutes);
+  const offsetHours = String(Math.floor(absOffset / 60)).padStart(2, "0");
+  const offsetMins = String(absOffset % 60).padStart(2, "0");
+
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.${milliseconds}${sign}${offsetHours}:${offsetMins}`;
 };
 
 const roundUpRupiah = (value: number) => Math.ceil(Number(value || 0));
@@ -131,6 +152,11 @@ const AdminDashboard: React.FC = () => {
   const [showCafeReportModal, setShowCafeReportModal] = useState(false);
   const [showDiscountReportModal, setShowDiscountReportModal] = useState(false);
   const [showRevenueReportModal, setShowRevenueReportModal] = useState(false);
+  const [showProtectionLogModal, setShowProtectionLogModal] = useState(false);
+  const [protectionLogCount, setProtectionLogCount] = useState(0);
+  const [protectionLogs, setProtectionLogs] = useState<any[]>([]);
+  const [isLoadingProtectionLogs, setIsLoadingProtectionLogs] = useState(false);
+  const [protectionLogRefreshKey, setProtectionLogRefreshKey] = useState(0);
   const [revenueReportView, setRevenueReportView] = useState<
     "daftar" | "rekapKasir" | "rekapTanggal"
   >("daftar");
@@ -145,7 +171,14 @@ const AdminDashboard: React.FC = () => {
     "daftar" | "rekapTanggal" | "rekapBarang"
   >("daftar");
   const [showExpenseReportModal, setShowExpenseReportModal] = useState(false);
+  const [showRentalReportModal, setShowRentalReportModal] = useState(false);
+  const [showInventoryModal, setShowInventoryModal] = useState(false);
+  const [inventoryRows, setInventoryRows] = useState<any[]>([]);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
   const [expandedExpenseCategories, setExpandedExpenseCategories] = useState<
+    Set<string>
+  >(new Set());
+  const [expandedProtectionCashiers, setExpandedProtectionCashiers] = useState<
     Set<string>
   >(new Set());
   const [purchaseOrderItems, setPurchaseOrderItems] = useState<any[]>([]);
@@ -165,36 +198,19 @@ const AdminDashboard: React.FC = () => {
       setLoading(true);
 
       const { start, end } = periodWindow;
-      const startIso = start?.toISOString();
-      const endIso = end?.toISOString();
+      const startIso = start ? toLocalIsoOffset(start) : undefined;
+      const endIso = end ? toLocalIsoOffset(end) : undefined;
       const startDate = start ? toYmd(start) : null;
       const endDate = end ? toYmd(end) : null;
 
       try {
-        let revenueQuery = supabase
-          .from("cashier_transactions")
-          .select(
-            `
-            id,
-            amount,
-            type,
-            timestamp,
-            reference_id,
-            description,
-            payment_method,
-            cashier_id,
-            session_id,
-            details,
-            cashier_sessions (
-              cashier_name
-            )
-          `
-          )
-          .not("cashier_id", "is", null)
-          .order("timestamp", { ascending: false });
+        let sessionQuery = supabase
+          .from("cashier_sessions")
+          .select("id, cashier_name, start_time")
+          .order("start_time", { ascending: false });
 
-        if (startIso) revenueQuery = revenueQuery.gte("timestamp", startIso);
-        if (endIso) revenueQuery = revenueQuery.lte("timestamp", endIso);
+        if (startIso) sessionQuery = sessionQuery.gte("start_time", startIso);
+        if (endIso) sessionQuery = sessionQuery.lte("start_time", endIso);
 
         let purchaseQuery = supabase
           .from("purchase_orders")
@@ -213,50 +229,90 @@ const AdminDashboard: React.FC = () => {
         if (endDate) expenseQuery = expenseQuery.lte("entry_date", endDate);
 
         let rentalQuery = supabase
-          .from("rental_sessions")
-          .select(
-            `
-            id,
-            console_id,
-            start_time,
-            end_time,
-            duration_minutes,
-            hourly_rate_snapshot,
-            status,
-            consoles (
-              name,
-              equipment_type_id,
-              rate_profiles (
-                hourly_rate,
-                capital
-              ),
-              equipment_types (
-                name
-              )
-            )
-          `
-          );
+          .from("cashier_transactions")
+          .select("id, amount, timestamp, type, reference_id, details")
+          .eq("type", "rental")
+          .not("reference_id", "ilike", "MOVE_RENTAL-%");
 
-        if (startIso) rentalQuery = rentalQuery.gte("start_time", startIso);
-        if (endIso) rentalQuery = rentalQuery.lte("start_time", endIso);
+        if (startIso) rentalQuery = rentalQuery.gte("timestamp", startIso);
+        if (endIso) rentalQuery = rentalQuery.lte("timestamp", endIso);
 
-        const [revenueRes, purchaseRes, expenseRes, rentalRes] = await Promise.all([
-          revenueQuery,
+        let protectionCountQuery = supabase
+          .from("cashier_transactions")
+          .select("id", { count: "exact", head: true })
+          .ilike("description", "[PROTECTION]%");
+
+        if (startIso) protectionCountQuery = protectionCountQuery.gte("timestamp", startIso);
+        if (endIso) protectionCountQuery = protectionCountQuery.lte("timestamp", endIso);
+
+        const [sessionRes, purchaseRes, expenseRes, rentalRes, protectionCountRes] = await Promise.all([
+          sessionQuery,
           purchaseQuery,
           expenseQuery,
           rentalQuery,
+          protectionCountQuery,
         ]);
 
-        setCashierRevenueRows(revenueRes.data || []);
+        const sessionRows = (sessionRes.data || []) as Array<{
+          id: string;
+          cashier_name: string | null;
+        }>;
+
+        const sessionIdList = sessionRows
+          .map((row) => String(row.id || ""))
+          .filter((id) => Boolean(id));
+
+        const cashierNameMap = new Map<string, string>();
+        for (const session of sessionRows) {
+          cashierNameMap.set(String(session.id), String(session.cashier_name || "Kasir"));
+        }
+
+        let revenueRows: any[] = [];
+        if (sessionIdList.length > 0) {
+          const chunkSize = 500;
+          const revenueChunks: any[] = [];
+
+          for (let i = 0; i < sessionIdList.length; i += chunkSize) {
+            const chunkIds = sessionIdList.slice(i, i + chunkSize);
+            const { data } = await supabase
+              .from("cashier_transactions")
+              .select(
+                "id, amount, type, timestamp, reference_id, description, payment_method, cashier_id, session_id, details"
+              )
+              .not("cashier_id", "is", null)
+              .in("session_id", chunkIds)
+              .order("timestamp", { ascending: false });
+
+            if (data?.length) revenueChunks.push(...data);
+          }
+
+          revenueRows = revenueChunks
+            .map((row: any) => ({
+              ...row,
+              cashier_sessions: {
+                cashier_name:
+                  cashierNameMap.get(String(row?.session_id || "")) || "Kasir",
+              },
+            }))
+            .sort(
+              (a, b) =>
+                new Date(b?.timestamp || 0).getTime() -
+                new Date(a?.timestamp || 0).getTime()
+            );
+        }
+
+        setCashierRevenueRows(revenueRows);
         setPurchaseRows(purchaseRes.data || []);
         setExpenseRows(expenseRes.data || []);
         setRentalRows(rentalRes.data || []);
+        setProtectionLogCount(protectionCountRes.count ?? 0);
       } catch (error) {
         console.error("Error fetching admin dashboard data:", error);
         setCashierRevenueRows([]);
         setPurchaseRows([]);
         setExpenseRows([]);
         setRentalRows([]);
+        setProtectionLogCount(0);
       } finally {
         setLoading(false);
       }
@@ -304,6 +360,138 @@ const AdminDashboard: React.FC = () => {
     fetchPurchaseDetailData();
   }, [showPurchaseReportModal, purchaseRows]);
 
+  useEffect(() => {
+    const fetchInventoryData = async () => {
+      setInventoryLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from("products")
+          .select("id, name, category, stock, min_stock, unit, cost, is_active")
+          .eq("is_active", true)
+          .order("name", { ascending: true });
+
+        if (error) throw error;
+        setInventoryRows(data || []);
+      } catch (error) {
+        console.error("Error fetching inventory data:", error);
+        setInventoryRows([]);
+      } finally {
+        setInventoryLoading(false);
+      }
+    };
+
+    fetchInventoryData();
+  }, []);
+
+  useEffect(() => {
+    const fetchProtectionLogDetails = async () => {
+      if (!showProtectionLogModal) return;
+
+      setIsLoadingProtectionLogs(true);
+      const { start, end } = periodWindow;
+      const startIso = start ? toLocalIsoOffset(start) : undefined;
+      const endIso = end ? toLocalIsoOffset(end) : undefined;
+
+      try {
+        let query = supabase
+          .from("cashier_transactions")
+          .select(
+            "id, timestamp, description, details, cashier_id, cashier_sessions(cashier_name)"
+          )
+          .ilike("description", "[PROTECTION]%")
+          .order("timestamp", { ascending: false });
+
+        if (startIso) query = query.gte("timestamp", startIso);
+        if (endIso) query = query.lte("timestamp", endIso);
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        const logs = data || [];
+
+        const enableLogs = logs.filter((log: any) => {
+          const action = log.details?.action;
+          return (
+            action === "enable_auto_shutdown" || action === "enable_all_auto_shutdown"
+          );
+        });
+
+        let candidateDisables: any[] = logs.filter((log: any) => {
+          const action = log.details?.action;
+          return (
+            action === "disable_auto_shutdown" || action === "disable_all_auto_shutdown"
+          );
+        });
+
+        if (enableLogs.length > 0) {
+          const maxTimestamp = new Date(
+            Math.max(...enableLogs.map((l: any) => new Date(l.timestamp).getTime()))
+          ).toISOString();
+
+          const { data: previousDisables } = await supabase
+            .from("cashier_transactions")
+            .select("id, timestamp, details")
+            .ilike("description", "[PROTECTION]%")
+            .in("details->>action", ["disable_auto_shutdown", "disable_all_auto_shutdown"])
+            .lte("timestamp", maxTimestamp)
+            .order("timestamp", { ascending: false })
+            .limit(200);
+
+          if (previousDisables) {
+            const existingIds = new Set(candidateDisables.map((log: any) => log.id));
+            const newDisables = previousDisables.filter(
+              (log: any) => !existingIds.has(log.id)
+            );
+            candidateDisables = [...candidateDisables, ...newDisables].sort(
+              (a: any, b: any) =>
+                new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            );
+          }
+        }
+
+        const logsWithDuration = logs.map((log: any) => {
+          const action = log.details?.action;
+          if (
+            action === "enable_auto_shutdown" ||
+            action === "enable_all_auto_shutdown"
+          ) {
+            const consoleId = log.details?.console_id;
+            const logTimestamp = new Date(log.timestamp).getTime();
+
+            const pairData = candidateDisables.find((disableLog: any) => {
+              const disableTimestamp = new Date(disableLog.timestamp).getTime();
+              if (disableTimestamp >= logTimestamp) return false;
+              const disableAction = disableLog.details?.action;
+              if (action === "enable_auto_shutdown" && consoleId) {
+                return (
+                  (disableAction === "disable_auto_shutdown" &&
+                    disableLog.details?.console_id === consoleId) ||
+                  disableAction === "disable_all_auto_shutdown"
+                );
+              }
+              return disableAction === "disable_all_auto_shutdown";
+            });
+
+            if (pairData) {
+              const pairStart = new Date(pairData.timestamp).getTime();
+              return { ...log, duration: logTimestamp - pairStart };
+            }
+          }
+          return log;
+        });
+
+        setProtectionLogs(logsWithDuration);
+      } catch (err) {
+        console.error("Error fetching protection log details:", err);
+        setProtectionLogs([]);
+      } finally {
+        setIsLoadingProtectionLogs(false);
+      }
+    };
+
+    fetchProtectionLogDetails();
+  }, [showProtectionLogModal, periodWindow, protectionLogRefreshKey]);
+
   const revenueSummaryRows = useMemo(
     () =>
       cashierRevenueRows.filter(
@@ -315,31 +503,27 @@ const AdminDashboard: React.FC = () => {
     [cashierRevenueRows]
   );
 
+  const pendapatanRows = useMemo(
+    () =>
+      cashierRevenueRows.filter(
+        (row: any) =>
+          row?.type === "rental" ||
+          row?.type === "voucher" ||
+          row?.type === "sale"
+      ),
+    [cashierRevenueRows]
+  );
+
   const getCashierDisplayName = (row: any) =>
     row?.cashier_sessions?.cashier_name || "Kasir";
 
-  const perCashier = useMemo(() => {
-    const map = new Map<string, number>();
-
-    for (const row of revenueSummaryRows) {
-      const cashierName = getCashierDisplayName(row);
-      const amount = Number(row?.amount || 0);
-      map.set(cashierName, (map.get(cashierName) || 0) + amount);
-    }
-
-    return Array.from(map.entries())
-      .map(([cashierName, total]) => ({ cashierName, total }))
-      .filter((row) => row.total > 0)
-      .sort((a, b) => b.total - a.total);
-  }, [revenueSummaryRows]);
-
   const totalRevenue = useMemo(
     () =>
-      revenueSummaryRows.reduce(
+      pendapatanRows.reduce(
         (sum: number, row: any) => sum + Number(row?.amount || 0),
         0
       ),
-    [revenueSummaryRows]
+    [pendapatanRows]
   );
 
   const rentalRevenue = useMemo(
@@ -364,6 +548,35 @@ const AdminDashboard: React.FC = () => {
         .filter((row: any) => row?.type === "voucher")
         .reduce((sum: number, row: any) => sum + Number(row?.amount || 0), 0),
     [revenueSummaryRows]
+  );
+
+  const totalPersediaan = useMemo(
+    () =>
+      inventoryRows.reduce(
+        (sum: number, row: any) => sum + Number(row?.stock || 0),
+        0
+      ),
+    [inventoryRows]
+  );
+
+  const totalNilaiAset = useMemo(
+    () =>
+      inventoryRows.reduce((sum: number, row: any) => {
+        const stock = Number(row?.stock || 0);
+        const cost = Number(row?.cost || 0);
+        return sum + stock * cost;
+      }, 0),
+    [inventoryRows]
+  );
+
+  const lowStockCount = useMemo(
+    () =>
+      inventoryRows.filter((row: any) => {
+        const stock = Number(row?.stock || 0);
+        const minStock = Number(row?.min_stock || 0);
+        return minStock > 0 && stock <= minStock;
+      }).length,
+    [inventoryRows]
   );
 
   const totalPembelian = useMemo(
@@ -421,6 +634,45 @@ const AdminDashboard: React.FC = () => {
   }, [expenseRowsSorted]);
 
   const rentalJamPerGroup = useMemo(() => {
+    const getRentalConsoleName = (tx: any): string =>
+      tx?.details?.rental?.console ||
+      tx?.details?.items?.[0]?.name ||
+      tx?.details?.items?.[0]?.product_name ||
+      "Unknown Console";
+
+    const getRentalDurationMinutes = (tx: any): number =>
+      tx?.details?.rental?.duration_minutes ||
+      tx?.details?.duration_minutes ||
+      tx?.details?.additional_duration_minutes ||
+      0;
+
+    const getConsoleTypeLabel = (tx: any): string => {
+      const rawType =
+        tx?.details?.rental?.console_type ||
+        tx?.details?.console_type ||
+        tx?.details?.rental?.consoleType ||
+        tx?.details?.consoleType ||
+        tx?.details?.rental?.type ||
+        "";
+      const normalizedRaw = String(rawType).toLowerCase();
+
+      if (normalizedRaw.includes("ps5")) return "PS5";
+      if (normalizedRaw.includes("ps4")) return "PS4";
+      if (normalizedRaw.includes("ps3")) return "PS3";
+      if (normalizedRaw.includes("xbox")) return "XBOX";
+      if (normalizedRaw.includes("nintendo") || normalizedRaw.includes("switch")) return "NINTENDO";
+
+      const consoleName = getRentalConsoleName(tx).toLowerCase();
+      if (consoleName.includes("ps5")) return "PS5";
+      if (consoleName.includes("ps4")) return "PS4";
+      if (consoleName.includes("ps3")) return "PS3";
+      if (consoleName.includes("xbox")) return "XBOX";
+      if (consoleName.includes("nintendo") || consoleName.includes("switch")) return "NINTENDO";
+      if (consoleName.includes("vip")) return "VIP";
+
+      return "Lainnya";
+    };
+
     const groupMap = new Map<
       string,
       {
@@ -433,29 +685,16 @@ const AdminDashboard: React.FC = () => {
     >();
 
     for (const row of rentalRows) {
-      const groupName =
-        row?.consoles?.equipment_types?.name ||
-        row?.consoles?.name ||
-        "Tanpa Group";
-
-      const hourlyRate = Number(
-        row?.hourly_rate_snapshot ?? row?.consoles?.rate_profiles?.hourly_rate ?? 0
+      const groupName = getConsoleTypeLabel(row);
+      const durationMinutes = getRentalDurationMinutes(row);
+      const hours = durationMinutes / 60;
+      const revenue = Number(row?.amount || 0);
+      const itemProfit = (row?.details?.items || []).reduce(
+        (s: number, it: any) => s + (Number(it?.profit) || 0),
+        0
       );
-      const capitalRate = Number(row?.consoles?.rate_profiles?.capital ?? 0);
+      const capital = revenue - itemProfit;
 
-      const durationMinutes = Number(row?.duration_minutes || 0);
-      let minutes = durationMinutes;
-
-      if (minutes <= 0 && row?.start_time) {
-        const start = new Date(row.start_time).getTime();
-        const end = row?.end_time
-          ? new Date(row.end_time).getTime()
-          : new Date().getTime();
-        const diffMinutes = Math.max(0, Math.round((end - start) / 60000));
-        minutes = diffMinutes;
-      }
-
-      const hours = minutes / 60;
       const prev = groupMap.get(groupName) || {
         groupName,
         hours: 0,
@@ -465,54 +704,26 @@ const AdminDashboard: React.FC = () => {
       };
 
       prev.hours += hours;
-      prev.estimatedTotal += hours * hourlyRate;
-      prev.estimatedProfit += hours * (hourlyRate - capitalRate);
-      prev.totalCapitalAmount += hours * capitalRate;
+      prev.estimatedTotal += revenue;
+      prev.estimatedProfit += itemProfit;
+      prev.totalCapitalAmount += capital;
 
       groupMap.set(groupName, prev);
     }
 
-    return Array.from(groupMap.entries())
-      .map(([, value]) => ({
+    return Array.from(groupMap.values())
+      .map((value) => ({
         ...value,
         avgHourlyRate: value.hours > 0 ? value.estimatedTotal / value.hours : 0,
         avgCapitalRate: value.hours > 0 ? value.totalCapitalAmount / value.hours : 0,
       }))
-      .filter((row) => row.hours > 0)
+      .filter((row) => row.hours > 0 || row.estimatedTotal > 0)
       .sort((a, b) => b.hours - a.hours);
   }, [rentalRows]);
 
   const totalRentalHours = useMemo(
     () => rentalJamPerGroup.reduce((sum, row) => sum + row.hours, 0),
     [rentalJamPerGroup]
-  );
-
-  const totalEstimatedRental = useMemo(
-    () => rentalJamPerGroup.reduce((sum, row) => sum + row.estimatedTotal, 0),
-    [rentalJamPerGroup]
-  );
-
-  const totalEstimatedRentalProfit = useMemo(
-    () => rentalJamPerGroup.reduce((sum, row) => sum + row.estimatedProfit, 0),
-    [rentalJamPerGroup]
-  );
-
-  const totalEstimatedCapital = useMemo(
-    () => rentalJamPerGroup.reduce((sum, row) => sum + row.totalCapitalAmount, 0),
-    [rentalJamPerGroup]
-  );
-
-  const averageProfitPerHour = useMemo(
-    () => (totalRentalHours > 0 ? totalEstimatedRentalProfit / totalRentalHours : 0),
-    [totalEstimatedRentalProfit, totalRentalHours]
-  );
-
-  const profitMarginPercent = useMemo(
-    () =>
-      totalEstimatedRental > 0
-        ? (totalEstimatedRentalProfit / totalEstimatedRental) * 100
-        : 0,
-    [totalEstimatedRentalProfit, totalEstimatedRental]
   );
 
   const cafeDetailRows = useMemo(() => {
@@ -675,7 +886,7 @@ const AdminDashboard: React.FC = () => {
   );
 
   const revenueDetailRows = useMemo(() => {
-    return revenueSummaryRows
+    return pendapatanRows
       .map((row: any) => ({
         id: String(row?.id || ""),
         timestamp: row?.timestamp || "",
@@ -691,7 +902,7 @@ const AdminDashboard: React.FC = () => {
           new Date(b.timestamp || 0).getTime() -
           new Date(a.timestamp || 0).getTime()
       );
-  }, [revenueSummaryRows]);
+  }, [pendapatanRows]);
 
   const revenueRekapKasir = useMemo(() => {
     const map = new Map<string, { total: number; count: number }>();
@@ -855,6 +1066,34 @@ const AdminDashboard: React.FC = () => {
     return map;
   }, [purchaseRows, purchaseOrderItems]);
 
+  const protectionLogsByCashier = useMemo(() => {
+    const map: Record<
+      string,
+      { cashierName: string; count: number; enable: number; disable: number; logs: any[] }
+    > = {};
+
+    for (const log of protectionLogs) {
+      const cashierName =
+        log.cashier_sessions?.cashier_name || "System";
+      if (!map[cashierName]) {
+        map[cashierName] = { cashierName, count: 0, enable: 0, disable: 0, logs: [] };
+      }
+      const action = log.details?.action;
+      if (action === "enable_auto_shutdown" || action === "enable_all_auto_shutdown") {
+        map[cashierName].enable += 1;
+      } else if (
+        action === "disable_auto_shutdown" ||
+        action === "disable_all_auto_shutdown"
+      ) {
+        map[cashierName].disable += 1;
+      }
+      map[cashierName].count += 1;
+      map[cashierName].logs.push(log);
+    }
+
+    return Object.values(map).sort((a, b) => b.count - a.count);
+  }, [protectionLogs]);
+
   const activePeriodLabel = useMemo(() => {
     const { start, end } = periodWindow;
 
@@ -908,12 +1147,8 @@ const AdminDashboard: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-100 via-gray-50 to-gray-100 p-6">
-      <div className="mb-8 rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm backdrop-blur-sm">
-        <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">
-          <CalendarDays className="h-3.5 w-3.5" />
-          Administrator View
-        </div>
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="mb-8 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">
           Dashboard Administrator
         </h1>
@@ -923,7 +1158,7 @@ const AdminDashboard: React.FC = () => {
         </p>
       </div>
 
-      <div className="mb-6 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap gap-2">
           {periodButtons.map((item) => {
             const Icon = item.icon;
@@ -1004,22 +1239,23 @@ const AdminDashboard: React.FC = () => {
         )}
       </div>
 
-      <div className="mb-6 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-700">Pendapatan</h2>
-            <button
-              type="button"
-              onClick={() => setShowRevenueReportModal(true)}
-              title="Lihat detail pendapatan kasir"
-              className="rounded-lg bg-green-100 p-2 text-green-700 transition hover:bg-green-200"
-            >
-              <DollarSign className="h-4 w-4" />
-            </button>
+      <div className="mb-6 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-6">
+        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm text-center">
+          <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <DollarSign className="h-6 w-6 text-green-600" />
           </div>
-          <div className="text-2xl font-bold text-gray-900">
+          <h2 className="text-sm font-semibold text-gray-700 mb-2">Pendapatan</h2>
+          <div className="text-2xl font-bold text-gray-900 mb-3">
             Rp {totalRevenue.toLocaleString("id-ID")}
           </div>
+          <button
+            type="button"
+            onClick={() => setShowRevenueReportModal(true)}
+            title="Lihat detail pendapatan kasir"
+            className="w-full rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700 transition hover:bg-green-100"
+          >
+            Lihat Detail →
+          </button>
           <div className="mt-3 space-y-2 text-xs">
             <div className="flex items-center justify-between rounded-lg border border-blue-100 bg-blue-50 px-2 py-1.5 text-blue-700">
               <div className="font-medium">Rental</div>
@@ -1044,38 +1280,40 @@ const AdminDashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-700">Total Pembelian</h2>
-            <button
-              type="button"
-              onClick={() => setShowPurchaseReportModal(true)}
-              title="Lihat laporan pembelian"
-              className="rounded-lg bg-blue-100 p-2 text-blue-700 transition hover:bg-blue-200"
-            >
-              <ShoppingCart className="h-4 w-4" />
-            </button>
+        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm text-center">
+          <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <ShoppingCart className="h-6 w-6 text-blue-600" />
           </div>
-          <div className="text-2xl font-bold text-gray-900">
+          <h2 className="text-sm font-semibold text-gray-700 mb-2">Total Pembelian</h2>
+          <div className="text-2xl font-bold text-gray-900 mb-3">
             Rp {totalPembelian.toLocaleString("id-ID")}
           </div>
+          <button
+            type="button"
+            onClick={() => setShowPurchaseReportModal(true)}
+            title="Lihat laporan pembelian"
+            className="w-full rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-700 transition hover:bg-blue-100"
+          >
+            Lihat Detail →
+          </button>
         </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-700">Total Pengeluaran</h2>
-            <button
-              type="button"
-              onClick={() => setShowExpenseReportModal(true)}
-              title="Lihat detail pengeluaran"
-              className="rounded-lg bg-red-100 p-2 text-red-700 transition hover:bg-red-200"
-            >
-              <TrendingDown className="h-4 w-4" />
-            </button>
+        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm text-center">
+          <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <TrendingDown className="h-6 w-6 text-red-600" />
           </div>
-          <div className="text-2xl font-bold text-gray-900">
+          <h2 className="text-sm font-semibold text-gray-700 mb-2">Total Pengeluaran</h2>
+          <div className="text-2xl font-bold text-gray-900 mb-3">
             Rp {totalPengeluaran.toLocaleString("id-ID")}
           </div>
+          <button
+            type="button"
+            onClick={() => setShowExpenseReportModal(true)}
+            title="Lihat detail pengeluaran"
+            className="w-full rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 transition hover:bg-red-100"
+          >
+            Lihat Detail →
+          </button>
           <div className="mt-3 space-y-2 text-xs">
             {expenseByCategory.length === 0 ? (
               <div className="rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-gray-500">
@@ -1100,113 +1338,90 @@ const AdminDashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-700">Total Rental Jam</h2>
-            <div className="rounded-lg bg-purple-100 p-2 text-purple-700">
-              <Clock3 className="h-4 w-4" />
-            </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm text-center">
+          <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <Clock3 className="h-6 w-6 text-purple-600" />
           </div>
-          <div className="text-2xl font-bold text-gray-900">
+          <h2 className="text-sm font-semibold text-gray-700 mb-2">Total Rental Jam</h2>
+          <div className="text-2xl font-bold text-gray-900 mb-3">
             {totalRentalHours.toLocaleString("id-ID", {
               minimumFractionDigits: 1,
               maximumFractionDigits: 1,
             })}{" "}
             jam
           </div>
-          <div className="mt-3 grid grid-cols-1 gap-2 text-xs">
-            <div className="rounded-lg border border-blue-100 bg-blue-50 px-2 py-1.5 text-blue-700">
-              <div className="font-medium">Total Omzet</div>
+          <button
+            type="button"
+            onClick={() => setShowRentalReportModal(true)}
+            title="Lihat detail total rental jam"
+            className="w-full rounded-lg bg-purple-50 px-3 py-2 text-sm text-purple-700 transition hover:bg-purple-100"
+          >
+            Lihat Detail →
+          </button>
+        </div>
+
+        <div className="rounded-xl border border-amber-200 bg-white p-6 shadow-sm text-center">
+          <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <Package className="h-6 w-6 text-amber-600" />
+          </div>
+          <h2 className="text-sm font-semibold text-gray-700 mb-2">Persediaan</h2>
+          <div className="text-2xl font-bold text-gray-900 mb-3">
+            Rp {roundUpRupiah(totalNilaiAset).toLocaleString("id-ID")}
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowInventoryModal(true)}
+            title="Lihat detail persediaan"
+            className="w-full rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700 transition hover:bg-amber-100"
+          >
+            Lihat Detail →
+          </button>
+          <div className="mt-3 space-y-2 text-xs">
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-gray-700">
+              <div className="font-medium">Total Persediaan</div>
               <div className="text-sm font-semibold">
-                Rp {roundUpRupiah(totalEstimatedRental).toLocaleString("id-ID")}
+                {totalPersediaan.toLocaleString("id-ID")} unit
               </div>
-              <div className="text-[11px] text-blue-600">Jumlah jam x harga rental per jam</div>
             </div>
-            <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1.5 text-emerald-700">
-              <div className="font-medium">Estimasi Keuntungan</div>
-              <div className="text-sm font-semibold">
-                Rp {roundUpRupiah(totalEstimatedRentalProfit).toLocaleString("id-ID")}
+            <div className="rounded-lg border border-amber-100 bg-amber-50 px-2 py-1.5 text-amber-700">
+              <div className="font-medium">Produk Aktif</div>
+              <div className="text-sm font-semibold">{inventoryRows.length} produk</div>
+            </div>
+            <div className="rounded-lg border border-rose-100 bg-rose-50 px-2 py-1.5 text-rose-700">
+              <div className="font-medium">Stok Menipis</div>
+              <div className="text-sm font-semibold">{lowStockCount} produk</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-indigo-200 bg-white p-6 shadow-sm text-center">
+          <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <Shield className="h-6 w-6 text-indigo-600" />
+          </div>
+          <h2 className="text-sm font-semibold text-gray-700 mb-2">Protection Log</h2>
+          <div className="text-2xl font-bold text-gray-900 mb-3">
+            {protectionLogCount.toLocaleString("id-ID")}
+            <span className="ml-1 text-base font-normal text-gray-500">event</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowProtectionLogModal(true)}
+            className="w-full rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-700 transition hover:bg-indigo-100"
+          >
+            Lihat Detail →
+          </button>
+          <div className="mt-3 text-xs">
+            <div className="rounded-lg border border-indigo-100 bg-indigo-50 px-2 py-1.5 text-indigo-700">
+              <div className="text-[11px] text-indigo-600">
+                Log aktivasi/nonaktivasi proteksi konsol
               </div>
-              <div className="text-[11px] text-emerald-600">(Harga rental - harga modal) x jumlah jam</div>
             </div>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 lg:col-span-4">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">Pendapatan</h2>
-            <div className="p-2 rounded-lg bg-green-500">
-              <DollarSign className="h-5 w-5 text-white" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold text-gray-900">
-            Rp {totalRevenue.toLocaleString("id-ID")}
-          </div>
-          <div className="mt-3 space-y-3 text-sm">
-            <div className="flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-blue-700">
-              <div>
-                <div className="text-xs font-medium uppercase tracking-wide">Rental</div>
-                <div className="text-[11px] text-blue-500 mt-1">Pendapatan dari sesi rental</div>
-              </div>
-              <div className="text-lg font-bold text-right">
-                Rp {rentalRevenue.toLocaleString("id-ID")}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-emerald-700">
-              <div>
-                <div className="text-xs font-medium uppercase tracking-wide">Cafe</div>
-                <div className="text-[11px] text-emerald-500 mt-1">Pendapatan dari penjualan cafe</div>
-              </div>
-              <div className="text-lg font-bold text-right">
-                Rp {cafeRevenue.toLocaleString("id-ID")}
-              </div>
-            </div>
-
-            {voucherRevenue > 0 && (
-              <div className="flex items-center justify-between rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-amber-700">
-                <div>
-                  <div className="text-xs font-medium uppercase tracking-wide">Voucher</div>
-                  <div className="text-[11px] text-amber-600 mt-1">Pendapatan dari penjualan voucher</div>
-                </div>
-                <div className="text-lg font-bold text-right">
-                  Rp {voucherRevenue.toLocaleString("id-ID")}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="mt-6 border-t border-gray-200 pt-5">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Per Kasir</h3>
-
-            {loading ? (
-              <div className="text-sm text-gray-500">Memuat data pendapatan...</div>
-            ) : perCashier.length === 0 ? (
-              <div className="text-sm text-gray-500">Belum ada pendapatan hari ini.</div>
-            ) : (
-              <div className="space-y-3">
-                {perCashier.map((row) => (
-                  <div
-                    key={row.cashierName}
-                    className="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-3"
-                  >
-                    <div className="flex items-center gap-2 text-gray-800 font-medium">
-                      <UserRound className="h-4 w-4 text-gray-500" />
-                      <span>{row.cashierName}</span>
-                    </div>
-                    <div className="font-semibold text-gray-900">
-                      Rp {row.total.toLocaleString("id-ID")}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 lg:col-span-4">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:col-span-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900">Performa Cafe</h2>
             <button
@@ -1256,7 +1471,7 @@ const AdminDashboard: React.FC = () => {
           )}
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 lg:col-span-4">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:col-span-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900">History Discount</h2>
             <button
@@ -1309,124 +1524,11 @@ const AdminDashboard: React.FC = () => {
             </div>
           )}
         </div>
-
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 lg:col-span-12">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">
-              Total Rental Jam (Per Group Console)
-            </h2>
-            <Clock3 className="h-5 w-5 text-purple-600" />
-          </div>
-
-          {loading ? (
-            <div className="text-sm text-gray-500">Memuat data rental...</div>
-          ) : rentalJamPerGroup.length === 0 ? (
-            <div className="text-sm text-gray-500">Belum ada data rental pada periode ini.</div>
-          ) : (
-            <div className="space-y-3">
-              {rentalJamPerGroup.map((row) => (
-                <div
-                  key={row.groupName}
-                  className="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-3"
-                >
-                  <div>
-                    <div className="font-medium text-gray-800">{row.groupName}</div>
-                    <div className="text-xs text-violet-700">
-                      Rental/Jam: Rp {roundUpRupiah(row.avgHourlyRate).toLocaleString("id-ID")}
-                    </div>
-                    <div className="text-xs text-rose-700">
-                      Modal/Jam: Rp {roundUpRupiah(row.avgCapitalRate).toLocaleString("id-ID")}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-semibold text-gray-900">
-                      {row.hours.toLocaleString("id-ID", {
-                        minimumFractionDigits: 1,
-                        maximumFractionDigits: 1,
-                      })}{" "}
-                      jam
-                    </div>
-                    <div className="text-xs text-blue-700">
-                      Omzet: Rp {roundUpRupiah(row.estimatedTotal).toLocaleString("id-ID")}
-                    </div>
-                    <div className="text-xs text-emerald-700">
-                      Profit: Rp {roundUpRupiah(row.estimatedProfit).toLocaleString("id-ID")}
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              <div className="rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 px-4 py-3">
-                <div className="mb-3 flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-gray-900">Grand Total</div>
-                    <div className="text-xs text-gray-500">
-                      Ringkasan performa rental pada periode aktif
-                    </div>
-                  </div>
-                  <div className="rounded-md bg-white px-2 py-1 text-xs font-medium text-gray-600 border border-gray-200">
-                    {rentalJamPerGroup.length} group console
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-2 text-xs md:grid-cols-2">
-                  <div className="rounded-md border border-gray-200 bg-white px-3 py-2">
-                    <div className="text-gray-500">Total Jam</div>
-                    <div className="font-semibold text-gray-900">
-                      {totalRentalHours.toLocaleString("id-ID", {
-                        minimumFractionDigits: 1,
-                        maximumFractionDigits: 1,
-                      })} jam
-                    </div>
-                  </div>
-
-                  <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2">
-                    <div className="text-blue-600">Total Omzet</div>
-                    <div className="font-semibold text-blue-800">
-                      Rp {roundUpRupiah(totalEstimatedRental).toLocaleString("id-ID")}
-                    </div>
-                  </div>
-
-                  <div className="rounded-md border border-rose-100 bg-rose-50 px-3 py-2">
-                    <div className="text-rose-600">Total Modal</div>
-                    <div className="font-semibold text-rose-800">
-                      Rp {roundUpRupiah(totalEstimatedCapital).toLocaleString("id-ID")}
-                    </div>
-                  </div>
-
-                  <div className="rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2">
-                    <div className="text-emerald-600">Estimasi Keuntungan</div>
-                    <div className="font-semibold text-emerald-800">
-                      Rp {roundUpRupiah(totalEstimatedRentalProfit).toLocaleString("id-ID")}
-                    </div>
-                  </div>
-
-                  <div className="rounded-md border border-violet-100 bg-violet-50 px-3 py-2">
-                    <div className="text-violet-600">Profit / Jam</div>
-                    <div className="font-semibold text-violet-800">
-                      Rp {roundUpRupiah(averageProfitPerHour).toLocaleString("id-ID")}
-                    </div>
-                  </div>
-
-                  <div className="rounded-md border border-amber-100 bg-amber-50 px-3 py-2">
-                    <div className="text-amber-700">Margin Profit</div>
-                    <div className="font-semibold text-amber-800">
-                      {profitMarginPercent.toLocaleString("id-ID", {
-                        minimumFractionDigits: 1,
-                        maximumFractionDigits: 1,
-                      })}%
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
       </div>
 
       {showCafeReportModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
               <div>
                 <h3 className="text-xl font-bold text-gray-900">Detail Keuntungan Cafe</h3>
@@ -1550,7 +1652,7 @@ const AdminDashboard: React.FC = () => {
 
       {showDiscountReportModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
               <div>
                 <h3 className="text-xl font-bold text-gray-900">Detail History Discount</h3>
@@ -1634,7 +1736,7 @@ const AdminDashboard: React.FC = () => {
 
       {showPurchaseReportModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
               <div>
                 <h3 className="text-xl font-bold text-gray-900">Laporan Pembelian</h3>
@@ -1820,7 +1922,7 @@ const AdminDashboard: React.FC = () => {
 
       {showRevenueReportModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
               <div>
                 <h3 className="text-xl font-bold text-gray-900">
@@ -2134,7 +2236,7 @@ const AdminDashboard: React.FC = () => {
 
       {showExpenseReportModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
               <div>
                 <h3 className="text-xl font-bold text-gray-900">Detail Pengeluaran</h3>
@@ -2233,6 +2335,398 @@ const AdminDashboard: React.FC = () => {
                                 ))}
                               </tbody>
                             </table>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRentalReportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">
+                  Total Rental Jam (Per Group Console)
+                </h3>
+                <p className="text-sm text-gray-500">
+                  {activePeriodLabel.replace("Periode aktif: ", "")}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRentalReportModal(false)}
+                className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {loading ? (
+                <div className="text-sm text-gray-500">Memuat data rental...</div>
+              ) : rentalJamPerGroup.length === 0 ? (
+                <div className="rounded-xl border border-gray-200 bg-white p-6 text-center text-gray-500">
+                  Belum ada data rental pada periode ini.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {rentalJamPerGroup.map((row) => (
+                    <div
+                      key={row.groupName}
+                      className="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-3"
+                    >
+                      <div>
+                        <div className="font-medium text-gray-800">{row.groupName}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-semibold text-gray-900">
+                          {row.hours.toLocaleString("id-ID", {
+                            minimumFractionDigits: 1,
+                            maximumFractionDigits: 1,
+                          })}{" "}
+                          jam
+                        </div>
+                        <div className="text-xs text-blue-700">
+                          Omzet: Rp {roundUpRupiah(row.estimatedTotal).toLocaleString("id-ID")}
+                        </div>
+                        <div className="text-xs text-emerald-700">
+                          Profit: Rp {roundUpRupiah(row.estimatedProfit).toLocaleString("id-ID")}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 px-4 py-3">
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900">Grand Total</div>
+                        <div className="text-xs text-gray-500">
+                          Ringkasan performa rental pada periode aktif
+                        </div>
+                      </div>
+                      <div className="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-600">
+                        {rentalJamPerGroup.length} group console
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2 text-xs md:grid-cols-2">
+                      <div className="rounded-md border border-gray-200 bg-white px-3 py-2">
+                        <div className="text-gray-500">Total Jam</div>
+                        <div className="font-semibold text-gray-900">
+                          {totalRentalHours.toLocaleString("id-ID", {
+                            minimumFractionDigits: 1,
+                            maximumFractionDigits: 1,
+                          })} jam
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showInventoryModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">Detail Persediaan</h3>
+                <p className="text-sm text-gray-500">Total stok produk aktif saat ini</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowInventoryModal(false)}
+                className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="border-b border-gray-100 bg-gray-50 px-6 py-3">
+              <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
+                <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-amber-700">
+                  <div className="text-xs font-medium">Nilai Aset</div>
+                  <div className="font-semibold">
+                    Rp {roundUpRupiah(totalNilaiAset).toLocaleString("id-ID")}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-blue-700">
+                  <div className="text-xs font-medium">Total Persediaan</div>
+                  <div className="font-semibold">{totalPersediaan.toLocaleString("id-ID")} unit</div>
+                </div>
+                <div className="rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-rose-700">
+                  <div className="text-xs font-medium">Stok Menipis</div>
+                  <div className="font-semibold">{lowStockCount} produk</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {inventoryLoading ? (
+                <div className="rounded-xl border border-gray-200 bg-white p-6 text-center text-gray-500">
+                  Memuat data persediaan...
+                </div>
+              ) : inventoryRows.length === 0 ? (
+                <div className="rounded-xl border border-gray-200 bg-white p-6 text-center text-gray-500">
+                  Tidak ada data persediaan.
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-gray-200">
+                  <table className="min-w-full divide-y divide-gray-200 text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-600">Produk</th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-600">Kategori</th>
+                        <th className="px-4 py-2 text-right font-semibold text-gray-600">Stok</th>
+                        <th className="px-4 py-2 text-right font-semibold text-gray-600">Harga Beli</th>
+                        <th className="px-4 py-2 text-right font-semibold text-gray-600">Nilai Aset</th>
+                        <th className="px-4 py-2 text-right font-semibold text-gray-600">Min. Stok</th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-600">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 bg-white">
+                      {[...inventoryRows]
+                        .sort((a: any, b: any) => {
+                          const aLow = Number(a?.min_stock || 0) > 0 && Number(a?.stock || 0) <= Number(a?.min_stock || 0);
+                          const bLow = Number(b?.min_stock || 0) > 0 && Number(b?.stock || 0) <= Number(b?.min_stock || 0);
+                          if (aLow === bLow) {
+                            return String(a?.name || "").localeCompare(String(b?.name || ""));
+                          }
+                          return aLow ? -1 : 1;
+                        })
+                        .map((row: any) => {
+                          const stock = Number(row?.stock || 0);
+                          const cost = Number(row?.cost || 0);
+                          const assetValue = stock * cost;
+                          const minStock = Number(row?.min_stock || 0);
+                          const isLow = minStock > 0 && stock <= minStock;
+
+                          return (
+                            <tr key={String(row?.id || row?.name)} className="hover:bg-gray-50">
+                              <td className="px-4 py-2 font-medium text-gray-900">{String(row?.name || "-")}</td>
+                              <td className="px-4 py-2 text-gray-600">{String(row?.category || "-")}</td>
+                              <td className="px-4 py-2 text-right font-semibold text-gray-900">
+                                {stock.toLocaleString("id-ID")} {String(row?.unit || "")}
+                              </td>
+                              <td className="px-4 py-2 text-right text-gray-700">
+                                Rp {roundUpRupiah(cost).toLocaleString("id-ID")}
+                              </td>
+                              <td className="px-4 py-2 text-right font-semibold text-amber-700">
+                                Rp {roundUpRupiah(assetValue).toLocaleString("id-ID")}
+                              </td>
+                              <td className="px-4 py-2 text-right text-gray-700">
+                                {minStock.toLocaleString("id-ID")}
+                              </td>
+                              <td className="px-4 py-2">
+                                <span
+                                  className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                                    isLow
+                                      ? "bg-rose-100 text-rose-700"
+                                      : "bg-emerald-100 text-emerald-700"
+                                  }`}
+                                >
+                                  {isLow ? "Stok Menipis" : "Aman"}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {showProtectionLogModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">Protection Log</h3>
+                <p className="text-sm text-gray-500">
+                  {activePeriodLabel.replace("Periode aktif: ", "")}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setProtectionLogRefreshKey((k) => k + 1)}
+                  disabled={isLoadingProtectionLogs}
+                  className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-50"
+                >
+                  <RefreshCw
+                    className={`h-4 w-4 ${isLoadingProtectionLogs ? "animate-spin" : ""}`}
+                  />
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowProtectionLogModal(false)}
+                  className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="border-b border-gray-100 bg-gray-50 px-6 py-3">
+              <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
+                <div className="rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 text-indigo-700">
+                  <div className="text-xs font-medium">Total Event</div>
+                  <div className="font-semibold">{protectionLogs.length} log</div>
+                </div>
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-emerald-700">
+                  <div className="text-xs font-medium">Aktifkan Proteksi</div>
+                  <div className="font-semibold">
+                    {protectionLogs.filter((l: any) => {
+                      const a = l.details?.action;
+                      return a === "enable_auto_shutdown" || a === "enable_all_auto_shutdown";
+                    }).length}{" "}
+                    event
+                  </div>
+                </div>
+                <div className="rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-rose-700">
+                  <div className="text-xs font-medium">Nonaktifkan Proteksi</div>
+                  <div className="font-semibold">
+                    {protectionLogs.filter((l: any) => {
+                      const a = l.details?.action;
+                      return a === "disable_auto_shutdown" || a === "disable_all_auto_shutdown";
+                    }).length}{" "}
+                    event
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {isLoadingProtectionLogs ? (
+                <div className="p-10 text-center text-gray-500">Memuat data log...</div>
+              ) : protectionLogs.length === 0 ? (
+                <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-gray-500">
+                  Tidak ada protection log pada periode ini.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {protectionLogsByCashier.map((group) => {
+                    const isExpanded = expandedProtectionCashiers.has(group.cashierName);
+                    return (
+                      <div
+                        key={group.cashierName}
+                        className="rounded-xl border border-gray-200 bg-white overflow-hidden"
+                      >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedProtectionCashiers((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(group.cashierName)) {
+                                next.delete(group.cashierName);
+                              } else {
+                                next.add(group.cashierName);
+                              }
+                              return next;
+                            })
+                          }
+                          className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-gray-50"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="rounded-full bg-indigo-100 p-1.5 text-indigo-700">
+                              <UserRound className="h-3.5 w-3.5" />
+                            </div>
+                            <div>
+                              <p className="font-semibold text-gray-900">{group.cashierName}</p>
+                              <p className="text-xs text-gray-500">{group.count} event</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="flex gap-2 text-xs">
+                              <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-medium text-emerald-700">
+                                ↑ {group.enable} aktif
+                              </span>
+                              <span className="rounded-full bg-rose-100 px-2 py-0.5 font-medium text-rose-700">
+                                ↓ {group.disable} nonaktif
+                              </span>
+                            </div>
+                            <span className="text-sm text-gray-400">{isExpanded ? "−" : "+"}</span>
+                          </div>
+                        </button>
+
+                        {isExpanded && (
+                          <div className="divide-y divide-gray-100 border-t border-gray-100">
+                            {group.logs.map((log: any) => {
+                              const action = log.details?.action;
+                              const isEnable =
+                                action === "enable_auto_shutdown" ||
+                                action === "enable_all_auto_shutdown";
+                              const isDisable =
+                                action === "disable_auto_shutdown" ||
+                                action === "disable_all_auto_shutdown";
+
+                              return (
+                                <div
+                                  key={log.id}
+                                  className="px-4 py-3 hover:bg-gray-50 transition-colors"
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="flex items-start gap-2">
+                                      <div
+                                        className={`mt-0.5 shrink-0 rounded-full p-1 ${
+                                          isEnable
+                                            ? "bg-emerald-100 text-emerald-700"
+                                            : isDisable
+                                            ? "bg-rose-100 text-rose-700"
+                                            : "bg-gray-100 text-gray-600"
+                                        }`}
+                                      >
+                                        <Shield className="h-3.5 w-3.5" />
+                                      </div>
+                                      <div>
+                                        <p className="text-sm font-medium text-gray-900">
+                                          {log.description}
+                                        </p>
+                                        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500">
+                                          {log.details?.reason && (
+                                            <span className="font-medium italic text-red-600">
+                                              Alasan: {log.details.reason}
+                                            </span>
+                                          )}
+                                          {log.details?.console_id && (
+                                            <span className="text-indigo-600">
+                                              Console ID: {log.details.console_id}
+                                            </span>
+                                          )}
+                                        </div>
+                                        {log.duration !== undefined && (
+                                          <div className="mt-1 inline-flex items-center gap-1 rounded border border-orange-100 bg-orange-50 px-2 py-0.5 text-[11px] font-bold text-orange-700">
+                                            Durasi Off:{" "}
+                                            {Math.floor(log.duration / 3600000)}j{" "}
+                                            {Math.floor((log.duration % 3600000) / 60000)}m{" "}
+                                            {Math.floor((log.duration % 60000) / 1000)}d
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="shrink-0 text-right text-xs text-gray-500">
+                                      {log.timestamp
+                                        ? new Date(log.timestamp).toLocaleString("id-ID")
+                                        : "-"}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>

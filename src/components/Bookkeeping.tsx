@@ -169,7 +169,7 @@ const Bookkeeping: React.FC = () => {
     "per_tanggal" | "per_kasir"
   >("per_tanggal");
   const [rekapConsoleSubTab, setRekapConsoleSubTab] = useState<
-    "per_tanggal" | "per_console"
+    "per_tanggal" | "per_console" | "per_tipe"
   >("per_tanggal");
   const [labaRugiSubTab, setLabaRugiSubTab] = useState<"detail" | "rekap">(
     "detail"
@@ -1467,6 +1467,56 @@ const Bookkeeping: React.FC = () => {
     return { map: byCashier, cashierKeys };
   }, [sessions, transactions]);
 
+  const getRentalConsoleName = useCallback((tx: any) => {
+    return (
+      tx?.details?.rental?.console ||
+      tx?.details?.items?.[0]?.name ||
+      tx?.details?.items?.[0]?.product_name ||
+      "Unknown Console"
+    );
+  }, []);
+
+  const getRentalDurationMinutes = useCallback((tx: any) => {
+    return (
+      tx?.details?.rental?.duration_minutes ||
+      tx?.details?.duration_minutes ||
+      tx?.details?.additional_duration_minutes ||
+      0
+    );
+  }, []);
+
+  const getConsoleTypeLabel = useCallback(
+    (tx: any) => {
+      const rawType =
+        tx?.details?.rental?.console_type ||
+        tx?.details?.console_type ||
+        tx?.details?.rental?.consoleType ||
+        tx?.details?.consoleType ||
+        tx?.details?.rental?.type ||
+        "";
+      const normalizedRaw = String(rawType).toLowerCase();
+
+      if (normalizedRaw.includes("ps5")) return "PS5";
+      if (normalizedRaw.includes("ps4")) return "PS4";
+      if (normalizedRaw.includes("ps3")) return "PS3";
+      if (normalizedRaw.includes("xbox")) return "XBOX";
+      if (normalizedRaw.includes("nintendo") || normalizedRaw.includes("switch"))
+        return "NINTENDO";
+
+      const consoleName = getRentalConsoleName(tx).toLowerCase();
+      if (consoleName.includes("ps5")) return "PS5";
+      if (consoleName.includes("ps4")) return "PS4";
+      if (consoleName.includes("ps3")) return "PS3";
+      if (consoleName.includes("xbox")) return "XBOX";
+      if (consoleName.includes("nintendo") || consoleName.includes("switch"))
+        return "NINTENDO";
+      if (consoleName.includes("vip")) return "VIP";
+
+      return "Lainnya";
+    },
+    [getRentalConsoleName]
+  );
+
   // Rekap console per tanggal -> per console name (durasi)
   const rekapConsoleByDate = useMemo(() => {
     const byDate: Record<
@@ -1481,16 +1531,8 @@ const Bookkeeping: React.FC = () => {
     for (const t of transactions as any[]) {
       if (!t || !t.timestamp || t.type !== "rental") continue;
       const dk = new Date(t.timestamp).toISOString().slice(0, 10);
-      const consoleName =
-        t.details?.rental?.console ||
-        t.details?.items?.[0]?.name ||
-        t.details?.items?.[0]?.product_name ||
-        "Unknown Console";
-      const durationMinutes =
-        t.details?.rental?.duration_minutes ||
-        t.details?.duration_minutes ||
-        t.details?.additional_duration_minutes ||
-        0;
+      const consoleName = getRentalConsoleName(t);
+      const durationMinutes = getRentalDurationMinutes(t);
       if (!byDate[dk]) byDate[dk] = { consoles: {} };
       if (!byDate[dk].consoles[consoleName])
         byDate[dk].consoles[consoleName] = {
@@ -1504,7 +1546,7 @@ const Bookkeeping: React.FC = () => {
     }
     const dateKeys = Object.keys(byDate).sort((a, b) => (a < b ? 1 : -1));
     return { map: byDate, dateKeys };
-  }, [transactions]);
+  }, [transactions, getRentalConsoleName, getRentalDurationMinutes]);
 
   // Rekap console per console name -> per tanggal
   const rekapConsoleByConsole = useMemo(() => {
@@ -1523,16 +1565,8 @@ const Bookkeeping: React.FC = () => {
 
     for (const t of transactions as any[]) {
       if (!t || !t.timestamp || t.type !== "rental") continue;
-      const consoleName =
-        t.details?.rental?.console ||
-        t.details?.items?.[0]?.name ||
-        t.details?.items?.[0]?.product_name ||
-        "Unknown Console";
-      const durationMinutes =
-        t.details?.rental?.duration_minutes ||
-        t.details?.duration_minutes ||
-        t.details?.additional_duration_minutes ||
-        0;
+      const consoleName = getRentalConsoleName(t);
+      const durationMinutes = getRentalDurationMinutes(t);
 
       if (!byConsole[consoleName]) {
         byConsole[consoleName] = {
@@ -1568,7 +1602,69 @@ const Bookkeeping: React.FC = () => {
     });
 
     return { map: byConsole, consoleNames };
-  }, [transactions]);
+  }, [transactions, getRentalConsoleName, getRentalDurationMinutes]);
+
+  const rekapConsoleByType = useMemo(() => {
+    const byType: Record<
+      string,
+      {
+        consoleType: string;
+        totalDurationMinutes: number;
+        count: number;
+        consoles: Record<
+          string,
+          { list: any[]; totalDurationMinutes: number; count: number }
+        >;
+      }
+    > = {};
+
+    for (const t of transactions as any[]) {
+      if (!t || !t.timestamp || t.type !== "rental") continue;
+
+      const consoleType = getConsoleTypeLabel(t);
+      const consoleName = getRentalConsoleName(t);
+      const durationMinutes = getRentalDurationMinutes(t);
+
+      if (!byType[consoleType]) {
+        byType[consoleType] = {
+          consoleType,
+          totalDurationMinutes: 0,
+          count: 0,
+          consoles: {},
+        };
+      }
+
+      if (!byType[consoleType].consoles[consoleName]) {
+        byType[consoleType].consoles[consoleName] = {
+          list: [],
+          totalDurationMinutes: 0,
+          count: 0,
+        };
+      }
+
+      byType[consoleType].consoles[consoleName].list.push(t);
+      byType[consoleType].consoles[consoleName].totalDurationMinutes +=
+        durationMinutes;
+      byType[consoleType].consoles[consoleName].count += 1;
+
+      byType[consoleType].totalDurationMinutes += durationMinutes;
+      byType[consoleType].count += 1;
+    }
+
+    const typeKeys = Object.keys(byType).sort((a, b) => {
+      const aTotal = byType[a].totalDurationMinutes;
+      const bTotal = byType[b].totalDurationMinutes;
+      if (aTotal === bTotal) return 0;
+      return aTotal < bTotal ? 1 : -1;
+    });
+
+    return { map: byType, typeKeys };
+  }, [
+    transactions,
+    getConsoleTypeLabel,
+    getRentalConsoleName,
+    getRentalDurationMinutes,
+  ]);
 
   // Rekap laba rugi per tanggal (untuk tab rekap di laba_rugi)
   const rekapByDate = useMemo(() => {
@@ -4809,6 +4905,17 @@ const Bookkeeping: React.FC = () => {
                     <Gamepad className="h-4 w-4" />
                     Rekap Per Console
                   </button>
+                  <button
+                    onClick={() => setRekapConsoleSubTab("per_tipe")}
+                    className={`flex items-center gap-2 py-2 px-4 border-b-2 font-medium text-sm ${
+                      rekapConsoleSubTab === "per_tipe"
+                        ? "border-blue-500 text-blue-600"
+                        : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                    }`}
+                  >
+                    <Gamepad className="h-4 w-4" />
+                    Rekap Per Tipe Console
+                  </button>
                 </div>
 
                 {rekapConsoleSubTab === "per_tanggal" ? (
@@ -5068,6 +5175,120 @@ const Bookkeeping: React.FC = () => {
                                       </div>
                                     );
                                   })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                ) : rekapConsoleSubTab === "per_tipe" ? (
+                  <div className="divide-y divide-gray-200 max-h-screen overflow-y-auto">
+                    {rekapConsoleByType.typeKeys.length === 0 ? (
+                      <div className="p-12 text-center">
+                        <Gamepad className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                        <p className="text-gray-600">
+                          Tidak ada data tipe console ditemukan
+                        </p>
+                      </div>
+                    ) : (
+                      rekapConsoleByType.typeKeys.map((typeKey) => {
+                        const typeData = rekapConsoleByType.map[typeKey];
+                        const accordionKey = `type:${typeKey}`;
+                        const isTypeOpen = expandedConsoleBuckets.has(accordionKey);
+                        const formatDuration = (minutes: number) => {
+                          const hours = Math.floor(minutes / 60);
+                          const mins = minutes % 60;
+                          if (hours === 0) return `${mins} menit`;
+                          if (mins === 0) return `${hours} jam`;
+                          return `${hours} jam ${mins} menit`;
+                        };
+                        const consoleNames = Object.keys(typeData.consoles).sort(
+                          (a, b) =>
+                            typeData.consoles[b].totalDurationMinutes -
+                            typeData.consoles[a].totalDurationMinutes
+                        );
+
+                        return (
+                          <div
+                            key={typeKey}
+                            className="p-6 hover:bg-gray-50 transition-colors"
+                          >
+                            <button
+                              onClick={() => {
+                                const next = new Set(expandedConsoleBuckets);
+                                if (next.has(accordionKey)) next.delete(accordionKey);
+                                else next.add(accordionKey);
+                                setExpandedConsoleBuckets(next);
+                              }}
+                              className="w-full flex items-center justify-between"
+                              aria-expanded={isTypeOpen}
+                            >
+                              <div className="text-left">
+                                <div className="text-lg font-semibold text-gray-900">
+                                  {typeData.consoleType}
+                                </div>
+                                <div className="text-sm text-gray-500">
+                                  {typeData.count} transaksi • {consoleNames.length} console
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-sm font-semibold text-blue-700">
+                                  {formatDuration(typeData.totalDurationMinutes)}
+                                </div>
+                              </div>
+                            </button>
+
+                            {isTypeOpen && (
+                              <div className="mt-4 pt-4 border-t border-gray-200 overflow-x-auto">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                  <thead className="bg-white">
+                                    <tr>
+                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                                        Console
+                                      </th>
+                                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">
+                                        Transaksi
+                                      </th>
+                                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">
+                                        Total Durasi
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="bg-white divide-y divide-gray-100">
+                                    {consoleNames.map((consoleName) => {
+                                      const consoleData = typeData.consoles[consoleName];
+                                      return (
+                                        <tr key={`${typeKey}-${consoleName}`} className="hover:bg-gray-50">
+                                          <td className="px-3 py-2 text-sm text-gray-900">
+                                            {consoleName}
+                                          </td>
+                                          <td className="px-3 py-2 text-sm text-right text-gray-700">
+                                            {consoleData.count}
+                                          </td>
+                                          <td className="px-3 py-2 text-sm text-right font-semibold text-blue-700">
+                                            {formatDuration(
+                                              consoleData.totalDurationMinutes
+                                            )}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                  <tfoot>
+                                    <tr className="bg-gray-50">
+                                      <td
+                                        colSpan={2}
+                                        className="px-3 py-2 text-right font-semibold text-gray-900"
+                                      >
+                                        Subtotal Tipe
+                                      </td>
+                                      <td className="px-3 py-2 text-sm text-right font-semibold text-blue-700">
+                                        {formatDuration(typeData.totalDurationMinutes)}
+                                      </td>
+                                    </tr>
+                                  </tfoot>
+                                </table>
                               </div>
                             )}
                           </div>
