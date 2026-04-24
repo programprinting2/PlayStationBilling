@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Shield,
   ShoppingCart,
+  SlidersHorizontal,
   Ticket,
   TrendingDown,
   UserRound,
@@ -82,9 +83,9 @@ const roundUpRupiah = (value: number) => Math.ceil(Number(value || 0));
 const getPeriodWindow = (
   period: PeriodType,
   range: { start: string; end: string },
-  selectedMonth: number
+  selectedMonth: number,
+  selectedYear: number
 ) => {
-  const now = new Date();
   let start: Date | null = null;
   let end: Date | null = null;
 
@@ -115,8 +116,8 @@ const getPeriodWindow = (
       break;
     }
     case "month": {
-      start = new Date(now.getFullYear(), selectedMonth, 1);
-      end = new Date(now.getFullYear(), selectedMonth + 1, 0);
+      start = new Date(selectedYear, selectedMonth, 1);
+      end = new Date(selectedYear, selectedMonth + 1, 0);
       end.setHours(23, 59, 59, 999);
       break;
     }
@@ -139,6 +140,7 @@ const getPeriodWindow = (
 const AdminDashboard: React.FC = () => {
   const now = new Date();
   const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
   const currentMonthStart = toYmd(new Date(now.getFullYear(), currentMonth, 1));
   const currentMonthEnd = toYmd(new Date(now.getFullYear(), currentMonth + 1, 0));
 
@@ -149,6 +151,9 @@ const AdminDashboard: React.FC = () => {
   const [rentalRows, setRentalRows] = useState<any[]>([]);
   const [period, setPeriod] = useState<PeriodType>("today");
   const [selectedMonth, setSelectedMonth] = useState<number>(currentMonth);
+  const [selectedYearInput, setSelectedYearInput] = useState<string>(
+    String(currentYear)
+  );
   const [showCafeReportModal, setShowCafeReportModal] = useState(false);
   const [showDiscountReportModal, setShowDiscountReportModal] = useState(false);
   const [showRevenueReportModal, setShowRevenueReportModal] = useState(false);
@@ -187,11 +192,25 @@ const AdminDashboard: React.FC = () => {
     start: currentMonthStart,
     end: currentMonthEnd,
   });
+  const [openPeriodSettings, setOpenPeriodSettings] = useState<
+    Extract<PeriodType, "month" | "range"> | null
+  >(null);
+
+  const selectedYear = useMemo(() => {
+    const parsed = Number.parseInt(selectedYearInput, 10);
+    return Number.isFinite(parsed) ? parsed : currentYear;
+  }, [currentYear, selectedYearInput]);
 
   const periodWindow = useMemo(
-    () => getPeriodWindow(period, dateRange, selectedMonth),
-    [period, dateRange.start, dateRange.end, selectedMonth]
+    () => getPeriodWindow(period, dateRange, selectedMonth, selectedYear),
+    [period, dateRange.start, dateRange.end, selectedMonth, selectedYear]
   );
+
+  useEffect(() => {
+    if (period !== "month" && period !== "range") {
+      setOpenPeriodSettings(null);
+    }
+  }, [period]);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -1128,11 +1147,11 @@ const AdminDashboard: React.FC = () => {
     }
 
     if (period === "month") {
-      return `Periode aktif: Bulan ${MONTH_NAMES_ID[selectedMonth]} ${new Date().getFullYear()}`;
+      return `Periode aktif: Bulan ${MONTH_NAMES_ID[selectedMonth]} ${selectedYear}`;
     }
 
     return "Periode aktif";
-  }, [period, dateRange.start, dateRange.end, selectedMonth, periodWindow]);
+  }, [period, dateRange.start, dateRange.end, selectedMonth, selectedYear, periodWindow]);
 
   const periodButtons: Array<{
     value: PeriodType;
@@ -1163,20 +1182,118 @@ const AdminDashboard: React.FC = () => {
           {periodButtons.map((item) => {
             const Icon = item.icon;
             const active = period === item.value;
+            const hasSettings = item.value === "month" || item.value === "range";
+            const settingsValue = hasSettings
+              ? (item.value as Extract<PeriodType, "month" | "range">)
+              : null;
+            const isSettingsOpen =
+              Boolean(settingsValue) && openPeriodSettings === settingsValue;
             return (
-              <button
-                key={item.value}
-                type="button"
-                onClick={() => setPeriod(item.value)}
-                className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-all ${
-                  active
-                    ? "border-blue-600 bg-blue-600 text-white shadow"
-                    : "border-gray-300 bg-white text-gray-700 hover:border-blue-300 hover:bg-blue-50"
-                }`}
-              >
-                <Icon className="h-4 w-4" />
-                {item.label}
-              </button>
+              <div key={item.value} className="relative inline-flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setPeriod(item.value)}
+                  className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-all ${
+                    active
+                      ? "border-blue-600 bg-blue-600 text-white shadow"
+                      : "border-gray-300 bg-white text-gray-700 hover:border-blue-300 hover:bg-blue-50"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </button>
+
+                {hasSettings && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPeriod(item.value);
+                      if (!settingsValue) return;
+                      setOpenPeriodSettings((prev) =>
+                        prev === settingsValue ? null : settingsValue
+                      );
+                    }}
+                    className={`inline-flex items-center justify-center rounded-xl border p-2 transition-all ${
+                      isSettingsOpen
+                        ? "border-blue-600 bg-blue-50 text-blue-700"
+                        : "border-gray-300 bg-white text-gray-700 hover:border-blue-300 hover:bg-blue-50"
+                    }`}
+                    title={`Atur ${item.label}`}
+                  >
+                    <SlidersHorizontal className="h-4 w-4" />
+                  </button>
+                )}
+
+                {item.value === "month" && isSettingsOpen && (
+                  <div className="absolute left-0 top-full z-20 mt-2 w-72 rounded-xl border border-blue-100 bg-white p-3 shadow-lg">
+                    <div className="space-y-3">
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-gray-700">
+                          Pilih Bulan
+                        </label>
+                        <select
+                          value={selectedMonth}
+                          onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                        >
+                          {MONTH_NAMES_ID.map((monthName, idx) => (
+                            <option key={monthName} value={idx}>
+                              {monthName}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-gray-700">
+                          Tahun
+                        </label>
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          value={selectedYearInput}
+                          onChange={(e) => setSelectedYearInput(e.target.value)}
+                          placeholder={String(currentYear)}
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {item.value === "range" && isSettingsOpen && (
+                  <div className="absolute right-0 top-full z-20 mt-2 w-[22rem] rounded-xl border border-blue-100 bg-white p-3 shadow-lg">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-gray-700">
+                          Dari
+                        </label>
+                        <input
+                          type="date"
+                          value={dateRange.start}
+                          onChange={(e) =>
+                            setDateRange((prev) => ({ ...prev, start: e.target.value }))
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-gray-700">
+                          Sampai
+                        </label>
+                        <input
+                          type="date"
+                          value={dateRange.end}
+                          onChange={(e) =>
+                            setDateRange((prev) => ({ ...prev, end: e.target.value }))
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
@@ -1186,57 +1303,6 @@ const AdminDashboard: React.FC = () => {
           {activePeriodLabel}
         </div>
 
-        {period === "month" && (
-          <div className="mt-4 grid grid-cols-1 gap-3 rounded-xl border border-blue-100 bg-blue-50/60 p-3 md:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">
-                Pilih Bulan
-              </label>
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(Number(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
-              >
-                {MONTH_NAMES_ID.map((monthName, idx) => (
-                  <option key={monthName} value={idx}>
-                    {monthName}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        )}
-
-        {period === "range" && (
-          <div className="mt-4 grid grid-cols-1 gap-3 rounded-xl border border-blue-100 bg-blue-50/60 p-3 md:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">
-                Dari
-              </label>
-              <input
-                type="date"
-                value={dateRange.start}
-                onChange={(e) =>
-                  setDateRange((prev) => ({ ...prev, start: e.target.value }))
-                }
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">
-                Sampai
-              </label>
-              <input
-                type="date"
-                value={dateRange.end}
-                onChange={(e) =>
-                  setDateRange((prev) => ({ ...prev, end: e.target.value }))
-                }
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="mb-6 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-6">
