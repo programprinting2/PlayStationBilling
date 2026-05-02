@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Swal from "sweetalert2";
+import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
 import type { RFIDCard } from "../types";
 import type { CardUsageLog } from "../types";
@@ -23,6 +24,7 @@ import {
 } from "lucide-react";
 
 const RFIDCards: React.FC = () => {
+  const { user } = useAuth();
   const [cards, setCards] = useState<RFIDCard[]>([]);
   const [loading, setLoading] = useState(false);
   const [editAlias, setEditAlias] = useState("");
@@ -1207,18 +1209,20 @@ const RFIDCards: React.FC = () => {
                             Alias memudahkan identifikasi kartu
                           </p>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <input
-                            id="edit-admin-only"
-                            type="checkbox"
-                            checked={editIsAdmin}
-                            onChange={(e) => setEditIsAdmin(e.target.checked)}
-                            className="rounded"
-                          />
-                          <label htmlFor="edit-admin-only" className="text-sm">
-                            Kartu Admin
-                          </label>
-                        </div>
+                        {user?.role_id === "admin" && (
+                          <div className="flex items-center gap-2">
+                            <input
+                              id="edit-admin-only"
+                              type="checkbox"
+                              checked={editIsAdmin}
+                              onChange={(e) => setEditIsAdmin(e.target.checked)}
+                              className="rounded"
+                            />
+                            <label htmlFor="edit-admin-only" className="text-sm">
+                              Kartu Admin
+                            </label>
+                          </div>
+                        )}
                         <div className="flex items-center gap-2">
                           <input
                             id="edit-helper-only"
